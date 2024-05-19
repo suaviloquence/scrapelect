@@ -1,0 +1,28 @@
+csscrape 		-> element_list
+
+element_list	->	element element_list
+							|		""
+
+element 			->	selector_list `{` element_statement_list `}`
+
+selector_list	->	SELECTOR selector_opts selector_list
+							|		""
+
+selector_opts	->	`*`
+							|		`+`
+							|		`?`
+
+element_statement_list	->	element	element_statement_list
+												|		statement element_statement_list
+												|		""
+
+statement	->	@ ID : ID filter_list
+
+filter_list	->	`|`	ID `(` arg_list `)`
+						|		""
+
+arg_list	->	arg arg_list2
+					|		""
+# allow optional trailing comma
+arg_list_2	->	`,` arg_list
+						|		""
