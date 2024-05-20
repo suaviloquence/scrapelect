@@ -1,28 +1,48 @@
-csscrape 		-> element_list
+csscrape -> element_list
 
-element_list	->	element element_list
-							|		""
+element_list -> element element_list
+             |  ""
 
-element 			->	selector_list `{` element_statement_list `}`
+element -> selector_list selector_ops `{` element_statement_list `}`
 
-selector_list	->	SELECTOR selector_opts selector_list
-							|		""
+selector_list -> selector selector2
 
-selector_opts	->	`*`
-							|		`+`
-							|		`?`
+# TODO: pseudo-class, attr
+selector -> `.` ID
+         |  `#` ID
+         |  ID
+         |  `*`
 
-element_statement_list	->	element	element_statement_list
-												|		statement element_statement_list
-												|		""
+selector2 -> selector_combinator selector selector2
+          | ""
 
-statement	->	@ ID : ID filter_list
+selector_combinator -> `+`
+                    |  `>`
+                    |  `~`
+                    |  WHITESPACE
+                    |  `,`  # can we wrap in parentheses?  i don't think so.
+                    |  ""
 
-filter_list	->	`|`	ID `(` arg_list `)`
-						|		""
+selector_opts -> `?`
+              |  `[]`
+              |  ""
 
-arg_list	->	arg arg_list2
-					|		""
+element_statement_list -> element element_statement_list
+                       |  statement element_statement_list
+                       |  ""
+
+statement -> `@` ID : ID filter_list
+
+filter_list -> `|` ID `(` arg_list `)`
+            |  ""
+
+arg_list ->	arg arg_list2
+         |  ""
 # allow optional trailing comma
-arg_list_2	->	`,` arg_list
-						|		""
+arg_list_2 -> `,` arg_list
+           |  ""
+
+arg         ->  ID
+            |   INT
+            |   FLOAT
+            |   STRING
