@@ -116,6 +116,7 @@ mod statics {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Scanner<'a> {
     slice: &'a str,
     idx: usize,
@@ -123,8 +124,8 @@ pub struct Scanner<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Lexeme<'a> {
-    token: Token,
-    value: &'a str,
+    pub token: Token,
+    pub value: &'a str,
 }
 
 const EOF: Lexeme = Lexeme {
@@ -133,10 +134,12 @@ const EOF: Lexeme = Lexeme {
 };
 
 impl<'a> Scanner<'a> {
-    pub fn new(slice: &'a str) -> Self {
+    #[must_use]
+    pub const fn new(slice: &'a str) -> Self {
         Self { slice, idx: 0 }
     }
 
+    #[must_use]
     pub fn peek_token(&self) -> Lexeme<'a> {
         if self.idx >= self.slice.len() {
             return EOF;

@@ -1,5 +1,4 @@
-mod parser;
-mod scanner;
+mod frontend;
 
 fn main() {
     println!("Hello, world!");
