@@ -1,4 +1,4 @@
-use std::{cell::UnsafeCell, fmt::Debug, marker::PhantomData, num::NonZeroUsize};
+use std::{fmt::Debug, marker::PhantomData, num::NonZeroUsize};
 
 #[derive(Debug, Clone)]
 pub struct ArenaInner<T> {
@@ -7,11 +7,8 @@ pub struct ArenaInner<T> {
     next_ref: NonZeroUsize,
 }
 
-#[derive(Debug, Clone)]
-pub struct Arena<'a, T>(ArenaInner<T>, PhantomData<&'a ()>);
-
 #[derive(Debug)]
-pub struct ArenaBuilder<'a, T>(UnsafeCell<Arena<'a, T>>);
+pub struct Arena<'a, T>(ArenaInner<T>, PhantomData<&'a ()>);
 
 #[derive(Debug)]
 pub struct Ref<'a, T>(NonZeroUsize, PhantomData<&'a T>);
@@ -41,51 +38,25 @@ impl<'a, T> Arena<'a, T> {
 
     #[inline]
     #[must_use]
-    pub const fn builder() -> ArenaBuilder<'a, T> {
-        ArenaBuilder(UnsafeCell::new(Self::new()))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn get<'s>(&'s self, r: Ref<'s, T>) -> &'s T
+    pub fn get<'s>(&'s self, r: Ref<'a, T>) -> &'s T
     where
         'a: 's,
     {
         &self.0.inner[r.0.get() - 1]
     }
-}
 
-impl<'a, T> ArenaBuilder<'a, T> {
-    pub fn insert<'s>(&'s self, item: T) -> Ref<'a, T> {
-        // Safety: there can be no direct references to items in `inner`
-        // because `ArenaBuilder` does not expose this functionality,
-        // and always starts empty in [`Arena::builder`]
-        //
-        // Any *indirect* references (i.e., [`Ref`]s) will still be valid,
-        // because we are just *appending* to the internal vector
-        // Thus any previous references vec[i] will still refer to the same
-        // data after the append.
-        //
-        // Additionally, because `ArenaBuilder` contains `UnsafeCell`, it is not
-        // `Send` or `Sync`, so this can only happen on one thread.
-        unsafe {
-            let this = &mut *self.0.get();
-            let r = this.0.next_ref;
-            this.0.next_ref = this
-                .0
-                .next_ref
-                .checked_add(1)
-                .expect("maximum arena size reached");
-
-            this.0.inner.push(item);
-            Ref(r, PhantomData)
-        }
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn build(self) -> Arena<'a, T> {
-        self.0.into_inner()
+    pub fn insert<'s>(&'s mut self, item: T) -> Ref<'a, T>
+    where
+        'a: 's,
+    {
+        let r = Ref(self.0.next_ref, PhantomData);
+        self.0.next_ref = self
+            .0
+            .next_ref
+            .checked_add(1)
+            .expect("maximum elements in arena.");
+        self.0.inner.push(item);
+        r
     }
 }
 
@@ -95,10 +66,9 @@ mod tests {
 
     #[test]
     fn test_compiles() {
-        let builder = Arena::<u8>::builder();
-        let r1 = builder.insert(1);
-        let r2 = builder.insert(2);
-        let arena = builder.build();
+        let mut arena = Arena::<u8>::new();
+        let r1 = arena.insert(1);
+        let r2 = arena.insert(2);
         assert_eq!(*arena.get(r1), 1);
         assert_eq!(*arena.get(r2), 2);
     }
@@ -108,10 +78,9 @@ mod tests {
         #[derive(Debug, PartialEq, Eq)]
         struct NoCopy(u8);
 
-        let builder = Arena::builder();
-        let r1 = builder.insert(NoCopy(1));
-        let r2 = builder.insert(NoCopy(2));
-        let arena = builder.build();
+        let mut arena = Arena::new();
+        let r1 = arena.insert(NoCopy(1));
+        let r2 = arena.insert(NoCopy(2));
 
         assert_eq!(&NoCopy(1), arena.get(r1));
         assert_eq!(&NoCopy(2), arena.get(r2));

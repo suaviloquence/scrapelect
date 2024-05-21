@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
-use super::arena::{Arena, ArenaBuilder, Ref};
+use super::arena::{Arena, Ref};
 
 #[derive(Debug)]
 pub struct AstRef<'a, T>(Ref<'a, Ast<'a>>, PhantomData<&'a T>);
 
 pub trait AstType<'a>: Sized {
     #[must_use]
-    fn unwrap_ref(node: &'a Ast<'a>) -> &'a Self;
+    fn unwrap_ref<'b>(node: &'b Ast<'a>) -> &'b Self;
 
     #[must_use]
     fn wrap(self) -> Ast<'a>;
@@ -26,18 +26,18 @@ impl<'a, T> Copy for AstRef<'a, T> {}
 impl<'a> Arena<'a, Ast<'a>> {
     #[inline]
     #[must_use]
-    pub fn get_variant<'s, T>(&'s self, r: AstRef<'s, T>) -> &'s T
+    pub fn get_variant<'s, T>(&'s self, r: AstRef<'a, T>) -> &'s T
     where
         'a: 's,
-        T: AstType<'s>,
+        T: AstType<'a>,
     {
         T::unwrap_ref(self.get(r.0))
     }
-}
 
-/// specialization for typed references
-impl<'a> ArenaBuilder<'a, Ast<'a>> {
-    pub fn insert_variant<T: AstType<'a>>(&self, variant: T) -> AstRef<'a, T> {
+    pub fn insert_variant<'s, T: AstType<'a>>(&'s mut self, variant: T) -> AstRef<'a, T>
+    where
+        'a: 's,
+    {
         let r = self.insert(variant.wrap());
         AstRef(r, PhantomData)
     }
@@ -110,7 +110,7 @@ macro_rules! ast_enum {
                 impl<'a> AstType<'a> for $variant<'a> {
                     #[inline]
                     #[must_use]
-                    fn unwrap_ref(node: &'a Ast<'a>) -> &'a Self {
+                    fn unwrap_ref<'b>(node: &'b Ast<'a>) -> &'b Self {
                         let Ast::$variant(x) = node else { unreachable!(concat!("expected a `Ast::", stringify!($variant), "` variant."))};
                         x
                     }
