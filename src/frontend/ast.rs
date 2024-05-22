@@ -3,7 +3,7 @@ use std::borrow::Cow;
 
 use super::arena::{Arena, Ref};
 
-pub type AstArena<'a> = Arena<'a, Ast<'a>>;
+pub type AstArena<'a> = Arena<Ast<'a>>;
 
 #[derive(Debug)]
 pub struct AstRef<'a, T>(Ref<'a, Ast<'a>>, PhantomData<&'a T>);

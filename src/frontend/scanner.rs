@@ -42,6 +42,8 @@ pub enum Token {
     Comma,
     /// a colon `:` to separate id from value in statements and arguments
     Colon,
+    /// a semicolon `;` to indicate the end of a statement
+    Semi,
     /// special token to indicate the end of the file
     Eof,
     /// special token to indicate unknown token
@@ -49,11 +51,9 @@ pub enum Token {
 }
 
 mod statics {
-    use super::{Lexeme, Token};
+    use super::Token;
     use regex::{Regex, RegexSet};
     use std::sync::OnceLock;
-
-    pub fn id(_: &mut Lexeme) {}
 
     pub struct Lazy<T, F = fn() -> T>(OnceLock<T>, F);
 
@@ -115,6 +115,7 @@ mod statics {
             ParenClose <- r"\)"
             Comma <- ","
             Colon <- ":"
+            Semi <- ";"
         };
     }
 }
@@ -140,6 +141,11 @@ impl<'a> Scanner<'a> {
     #[must_use]
     pub const fn new(slice: &'a str) -> Self {
         Self { slice, idx: 0 }
+    }
+
+    #[must_use]
+    pub fn window(&self, n: usize) -> &str {
+        &self.slice[self.idx - n..self.idx + n]
     }
 
     #[must_use]

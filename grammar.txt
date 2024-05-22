@@ -31,7 +31,7 @@ element_statement_list -> element element_statement_list
                        |  statement element_statement_list
                        |  ""
 
-statement -> `@` ID : ID filter_list
+statement -> `@` ID : ID filter_list `;`
 
 filter_list -> `|` ID `(` arg_list `)` filter_list
             |  ""

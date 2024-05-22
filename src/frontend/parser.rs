@@ -1,6 +1,8 @@
 use core::fmt;
 use std::borrow::Cow;
 
+use anyhow::Context;
+
 use super::{
     arena::Arena,
     ast::{
@@ -13,7 +15,7 @@ use super::{
 #[derive(Debug)]
 pub struct Parser<'a> {
     scanner: Scanner<'a>,
-    arena: Arena<'a, Ast<'a>>,
+    arena: Arena<Ast<'a>>,
 }
 
 #[derive(Debug, Clone)]
@@ -35,6 +37,8 @@ impl<'a> fmt::Display for ParseError<'a> {
     }
 }
 
+impl std::error::Error for ParseError<'_> {}
+
 type Result<'a, T> = std::result::Result<T, ParseError<'a>>;
 
 impl<'a> Parser<'a> {
@@ -46,10 +50,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(
-        mut self,
-    ) -> Result<'a, (Arena<'a, Ast<'a>>, Option<AstRef<'a, ElementList<'a>>>)> {
-        let r = self.parse_element_list()?;
+    pub fn parse(mut self) -> Result<'a, (Arena<Ast<'a>>, Option<AstRef<'a, ElementList<'a>>>)> {
+        let r = match self.parse_element_list() {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("{:?}", self.scanner.window(30));
+                return Err(e);
+            }
+        };
         self.try_eat(Token::Eof)?;
         Ok((self.arena, r))
     }
@@ -132,7 +140,7 @@ impl<'a> Parser<'a> {
         }
 
         let sel = match lx.token {
-            Token::BraceOpen => return Ok(None),
+            Token::BraceOpen | Token::Question | Token::Collection => return Ok(None),
             // invariant: peek_next_whitespace is one of Id | Hash | Dot | Star
             // whitespace is eaten in the above block.
             Token::Whitespace => SelectorCombinator::Descendent(self.parse_selector()?),
@@ -236,6 +244,7 @@ impl<'a> Parser<'a> {
         self.try_eat(Token::Colon)?;
         let value = self.try_eat(Token::Id)?.value;
         let filters = self.parse_filter_list()?;
+        self.try_eat(Token::Semi)?;
         Ok(Statement { id, value, filters })
     }
 

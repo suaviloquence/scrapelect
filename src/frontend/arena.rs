@@ -8,7 +8,7 @@ pub struct ArenaInner<T> {
 }
 
 #[derive(Debug)]
-pub struct Arena<'a, T>(ArenaInner<T>, PhantomData<&'a ()>);
+pub struct Arena<T>(ArenaInner<T>);
 
 #[derive(Debug)]
 pub struct Ref<'a, T>(NonZeroUsize, PhantomData<&'a T>);
@@ -22,30 +22,27 @@ impl<'a, T> Clone for Ref<'a, T> {
 
 impl<'a, T> Copy for Ref<'a, T> {}
 
-impl<'a, T> Arena<'a, T> {
+impl<T> Arena<T> {
     #[inline]
     #[must_use]
     pub const fn new() -> Self {
-        Self(
-            ArenaInner {
-                inner: Vec::new(),
-                // safety: 1 is nonzero
-                next_ref: unsafe { NonZeroUsize::new_unchecked(1) },
-            },
-            PhantomData,
-        )
+        Self(ArenaInner {
+            inner: Vec::new(),
+            // safety: 1 is nonzero
+            next_ref: unsafe { NonZeroUsize::new_unchecked(1) },
+        })
     }
 
     #[inline]
     #[must_use]
-    pub fn get<'s>(&'s self, r: Ref<'a, T>) -> &'s T
+    pub fn get<'a, 's>(&'s self, r: Ref<'a, T>) -> &'s T
     where
         'a: 's,
     {
         &self.0.inner[r.0.get() - 1]
     }
 
-    pub fn insert<'s>(&'s mut self, item: T) -> Ref<'a, T>
+    pub fn insert<'a, 's>(&'s mut self, item: T) -> Ref<'a, T>
     where
         'a: 's,
     {
