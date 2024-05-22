@@ -1,6 +1,9 @@
-use std::marker::PhantomData;
+use core::{fmt, marker::PhantomData};
+use std::borrow::Cow;
 
 use super::arena::{Arena, Ref};
+
+pub type AstArena<'a> = Arena<'a, Ast<'a>>;
 
 #[derive(Debug)]
 pub struct AstRef<'a, T>(Ref<'a, Ast<'a>>, PhantomData<&'a T>);
@@ -13,6 +16,10 @@ pub trait AstType<'a>: Sized {
     fn wrap(self) -> Ast<'a>;
 }
 
+pub trait AstArenaFlatten<'a>: AstType<'a> {
+    fn flatten<'s: 'o, 'o>(&'s self, arena: &'s AstArena<'a>, out: &mut Vec<&'o Self>);
+}
+
 /// explicit impl because we want it even when `T` is not Clone
 impl<'a, T> Clone for AstRef<'a, T> {
     fn clone(&self) -> Self {
@@ -23,7 +30,7 @@ impl<'a, T> Clone for AstRef<'a, T> {
 impl<'a, T> Copy for AstRef<'a, T> {}
 
 /// specialization for typed references
-impl<'a> Arena<'a, Ast<'a>> {
+impl<'a> AstArena<'a> {
     #[inline]
     #[must_use]
     pub fn get_variant<'s, T>(&'s self, r: AstRef<'a, T>) -> &'s T
@@ -41,6 +48,15 @@ impl<'a> Arena<'a, Ast<'a>> {
         let r = self.insert(variant.wrap());
         AstRef(r, PhantomData)
     }
+
+    #[must_use]
+    pub fn flatten<T: AstArenaFlatten<'a>>(&self, r: Option<AstRef<'a, T>>) -> Vec<&T> {
+        let mut out = Vec::new();
+        if let Some(r) = r {
+            self.get_variant(r).flatten(&self, &mut out);
+        }
+        out
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +65,17 @@ pub enum Selector<'a> {
     Tag(&'a str),
     Class(&'a str),
     Id(&'a str),
+}
+
+impl fmt::Display for Selector<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Any => write!(f, "*"),
+            Self::Tag(id) => write!(f, "{id}"),
+            Self::Class(id) => write!(f, ".{id}"),
+            Self::Id(id) => write!(f, "#{id}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -78,6 +105,7 @@ macro_rules! ast_enum {
             pub enum Ast<'a> {
                 $(
                     $(#[$indivmeta: meta])*
+                    $(@flatten[$(.$preorder: ident, )* self $(, .$postorder: ident)*])?
                     $variant: ident {
                         $(
                             $(#[$membermeta: meta])*
@@ -94,7 +122,7 @@ macro_rules! ast_enum {
                 pub struct $variant<'a> {
                     $(
                         $(#[$membermeta])*
-                        $member: $ty,
+                        pub $member: $ty,
                     )*
                     lt: PhantomData<&'a ()>,
                 }
@@ -121,6 +149,24 @@ macro_rules! ast_enum {
                         Ast::$variant(self)
                     }
                 }
+
+                $(
+                    impl<'a> AstArenaFlatten<'a> for $variant<'a> {
+                        fn flatten<'s: 'o, 'o>(&'s self, arena: &'s AstArena<'a>, out: &mut Vec<&'o Self>) {
+                            $(
+                                if let Some(pre) = self.$preorder {
+                                    arena.get_variant(pre).flatten(arena, out);
+                                }
+                            )*
+                            out.push(self);
+                            $(
+                                if let Some(post) = self.$postorder {
+                                    arena.get_variant(post).flatten(arena, out);
+                                }
+                            )*
+                        }
+                    }
+                )?
             )*
 
             #[$allmeta]
@@ -136,7 +182,7 @@ pub enum Leaf<'a> {
     Id(&'a str),
     Int(i64),
     Float(f64),
-    String(&'a str),
+    String(Cow<'a, str>),
 }
 
 #[derive(Debug, Clone)]
@@ -160,25 +206,30 @@ ALL:
 AST:
 /// An abstract syntax tree
 pub enum Ast<'a> {
+    @flatten[self, .next]
     SelectorList {
         sel: SelectorCombinator<'a>,
         next: Option<AstRef<'a, SelectorList<'a>>>,
     },
+    @flatten[self, .next]
     ArgList {
         id: &'a str,
         value: Leaf<'a>,
         next: Option<AstRef<'a, ArgList<'a>>>,
     },
+    @flatten[self, .next]
     FilterList {
         id: &'a str,
         args: Option<AstRef<'a, ArgList<'a>>>,
         next: Option<AstRef<'a, FilterList<'a>>>,
     },
+    @flatten[self, .next]
     ElementStatementList {
         /// read as Either type
         value: Result<Element<'a>, Statement<'a>>,
         next: Option<AstRef<'a, ElementStatementList<'a>>>,
     },
+    @flatten[self, .next]
     ElementList {
         value: Element<'a>,
         next: Option<AstRef<'a, ElementList<'a>>>,

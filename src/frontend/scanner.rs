@@ -40,6 +40,8 @@ pub enum Token {
     ParenClose,
     /// a comma `,` to separate arguments in a list, or to indicate a different selector
     Comma,
+    /// a colon `:` to separate id from value in statements and arguments
+    Colon,
     /// special token to indicate the end of the file
     Eof,
     /// special token to indicate unknown token
@@ -112,6 +114,7 @@ mod statics {
             ParenOpen <- r"\("
             ParenClose <- r"\)"
             Comma <- ","
+            Colon <- ":"
         };
     }
 }

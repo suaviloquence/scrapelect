@@ -33,16 +33,16 @@ element_statement_list -> element element_statement_list
 
 statement -> `@` ID : ID filter_list
 
-filter_list -> `|` ID `(` arg_list `)`
+filter_list -> `|` ID `(` arg_list `)` filter_list
             |  ""
 
-arg_list ->	arg arg_list2
+arg_list ->	ID `:` leaf arg_list2
          |  ""
 # allow optional trailing comma
 arg_list_2 -> `,` arg_list
            |  ""
 
-arg         ->  ID
+leaf        ->  ID
             |   INT
             |   FLOAT
             |   STRING
