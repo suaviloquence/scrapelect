@@ -1,13 +1,11 @@
 use core::fmt;
-use std::borrow::Cow;
-
-use anyhow::Context;
+use std::{borrow::Cow, ops::Not};
 
 use super::{
     arena::Arena,
     ast::{
-        ArgList, Ast, AstRef, Element, ElementList, ElementStatementList, FilterList, Leaf,
-        Selector, SelectorCombinator, SelectorList, SelectorOpts, Statement,
+        ArgList, Ast, AstRef, Element, FilterList, Leaf, RValue, Selector, SelectorCombinator,
+        SelectorList, SelectorOpts, Statement, StatementList, Url,
     },
     scanner::{Lexeme, Scanner, Token},
 };
@@ -50,11 +48,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(mut self) -> Result<'a, (Arena<Ast<'a>>, Option<AstRef<'a, ElementList<'a>>>)> {
-        let r = match self.parse_element_list() {
+    pub fn parse(mut self) -> Result<'a, (Arena<Ast<'a>>, Option<AstRef<'a, StatementList<'a>>>)> {
+        let r = match self.parse_statement_list() {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("{:?}", self.scanner.window(30));
                 return Err(e);
             }
         };
@@ -62,19 +59,55 @@ impl<'a> Parser<'a> {
         Ok((self.arena, r))
     }
 
-    fn parse_element_list(&mut self) -> Result<'a, Option<AstRef<'a, ElementList<'a>>>> {
+    pub fn parse_statement_list(&mut self) -> Result<'a, Option<AstRef<'a, StatementList<'a>>>> {
+        let lx = self.scanner.peek_non_whitespace();
+
+        if lx.token == Token::Id {
+            let statement = self.parse_statement()?;
+            let next = self.parse_statement_list()?;
+
+            Ok(Some(
+                self.arena
+                    .insert_variant(StatementList::new(statement, next)),
+            ))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn parse_statement(&mut self) -> Result<'a, Statement<'a>> {
+        let id = self.try_eat(Token::Id)?.value;
+        self.try_eat(Token::Colon)?;
+        let value = self.parse_rvalue()?;
+        let filters = self.parse_filter_list()?;
+        self.try_eat(Token::Semi)?;
+        Ok(Statement { id, value, filters })
+    }
+
+    fn parse_rvalue(&mut self) -> Result<'a, RValue<'a>> {
         let lx = self.scanner.peek_non_whitespace();
 
         match lx.token {
-            Token::Eof => Ok(None),
-            Token::Id | Token::Dot | Token::Hash | Token::Star => {
-                let element = self.parse_element()?;
-                let next = self.parse_element_list()?;
-                let r = self.arena.insert_variant(ElementList::new(element, next));
-                Ok(Some(r))
+            Token::Id => self.parse_element().map(RValue::Element),
+            _ => self.parse_leaf().map(RValue::Leaf),
+        }
+    }
+
+    fn parse_leaf(&mut self) -> Result<'a, Leaf<'a>> {
+        self.scanner.peek_non_whitespace();
+        let lx = self.scanner.eat_token();
+        match lx.token {
+            Token::String => Ok(Leaf::String(parse_string_literal(lx.value))),
+            Token::Float => Ok(Leaf::Float(
+                lx.value.parse().expect("float literal invalid"),
+            )),
+            Token::Int => Ok(Leaf::Int(lx.value.parse().expect("int literal invalid"))),
+            Token::Dollar => {
+                let id = self.try_eat(Token::Id)?.value;
+                Ok(Leaf::Var(id))
             }
             _ => Err(ParseError::UnexpectedToken {
-                expected: vec![Token::Eof, Token::Id, Token::Dot, Token::Hash, Token::Star],
+                expected: vec![Token::String, Token::Float, Token::Int, Token::Dollar],
                 got: lx,
             }),
         }
@@ -96,6 +129,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_element(&mut self) -> Result<'a, Element<'a>> {
+        let url = self.parse_url()?;
         let selector_head = self.parse_selector()?;
         let selectors = self.parse_selector_list()?;
         let lx = self.scanner.peek_non_whitespace();
@@ -114,16 +148,33 @@ impl<'a> Parser<'a> {
 
         self.try_eat(Token::BraceOpen)?;
 
-        let statements = self.parse_element_statement_list()?;
+        let statements = self.parse_statement_list()?;
 
         self.try_eat(Token::BraceClose)?;
 
         Ok(Element {
+            url,
             selector_head,
             ops,
             selectors,
             statements,
         })
+    }
+
+    fn parse_url(&mut self) -> Result<'a, Url<'a>> {
+        let lx = self.scanner.peek_non_whitespace();
+        match lx.token {
+            Token::Dollar => {
+                self.scanner.eat_token();
+                let id = self.try_eat(Token::Id)?.value;
+                Ok(Url::Var(id))
+            }
+            Token::String => {
+                self.scanner.eat_token();
+                Ok(Url::String(parse_string_literal(lx.value)))
+            }
+            _ => Ok(Url::Parent),
+        }
     }
 
     fn parse_selector_list(&mut self) -> Result<'a, Option<AstRef<'a, SelectorList<'a>>>> {
@@ -207,47 +258,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_element_statement_list(
-        &mut self,
-    ) -> Result<'a, Option<AstRef<'a, ElementStatementList<'a>>>> {
-        let lx = self.scanner.peek_non_whitespace();
-        let item = match lx.token {
-            Token::At => Err(self.parse_statement()?),
-            Token::Id | Token::Dot | Token::Hash | Token::Star => Ok(self.parse_element()?),
-            Token::BraceClose | Token::Eof => return Ok(None),
-            _ => {
-                return Err(ParseError::UnexpectedToken {
-                    expected: vec![
-                        Token::At,
-                        Token::Id,
-                        Token::Dot,
-                        Token::Hash,
-                        Token::Star,
-                        Token::BraceClose,
-                        Token::Eof,
-                    ],
-                    got: lx,
-                })
-            }
-        };
-
-        let next = self.parse_element_statement_list()?;
-        Ok(Some(
-            self.arena
-                .insert_variant(ElementStatementList::new(item, next)),
-        ))
-    }
-
-    fn parse_statement(&mut self) -> Result<'a, Statement<'a>> {
-        self.try_eat(Token::At)?;
-        let id = self.try_eat(Token::Id)?.value;
-        self.try_eat(Token::Colon)?;
-        let value = self.try_eat(Token::Id)?.value;
-        let filters = self.parse_filter_list()?;
-        self.try_eat(Token::Semi)?;
-        Ok(Statement { id, value, filters })
-    }
-
     fn parse_filter_list(&mut self) -> Result<'a, Option<AstRef<'a, FilterList<'a>>>> {
         let lx = self.scanner.peek_non_whitespace();
         if lx.token == Token::Pipe {
@@ -272,20 +282,7 @@ impl<'a> Parser<'a> {
                 let id = lx.value;
                 self.scanner.eat_token();
                 self.try_eat(Token::Colon)?;
-                let lx = self.scanner.peek_non_whitespace();
-                let value = match lx.token {
-                    Token::Id => Leaf::Id(lx.value),
-                    Token::Float => Leaf::Float(lx.value.parse().expect("float should be valid")),
-                    Token::Int => Leaf::Int(lx.value.parse().expect("int should be valid")),
-                    Token::String => Leaf::String(parse_string_literal(lx.value)),
-                    _ => {
-                        return Err(ParseError::UnexpectedToken {
-                            expected: vec![Token::Id, Token::Float, Token::Int, Token::String],
-                            got: lx,
-                        })
-                    }
-                };
-                self.scanner.eat_token();
+                let value = self.parse_leaf()?;
                 let next = match self.scanner.peek_non_whitespace().token {
                     Token::Comma => {
                         self.scanner.eat_token();
@@ -325,7 +322,7 @@ fn parse_string_literal(s: &str) -> Cow<'_, str> {
     } else {
         Cow::Owned(
             s.char_indices()
-                .filter_map(|(i, x)| prune.contains(&i).then_some(x))
+                .filter_map(|(i, x)| prune.contains(&i).not().then_some(x))
                 .collect(),
         )
     }
@@ -343,31 +340,37 @@ mod tests {
         let mut out = String::new();
         write!(&mut out, "{head}").expect("fmt error");
         for node in list {
-            match &node.sel {
+            let _ = match &node.sel {
                 SelectorCombinator::And(s) => write!(&mut out, "{s}"),
                 SelectorCombinator::Child(s) => write!(&mut out, " > {s}"),
                 SelectorCombinator::Descendent(s) => write!(&mut out, " {s}"),
                 SelectorCombinator::NextSibling(s) => write!(&mut out, " + {s}"),
                 SelectorCombinator::SubsequentSibling(s) => write!(&mut out, " ~ {s}"),
-            }
-            .expect("fmt error");
+            };
         }
 
         out
     }
 
     #[test]
-    fn test_elements() {
-        let string = r#"h1 {
-            @x: me | cat(i: "x", ) | meow()
-            h2#x > .cat  {
-            }
-            }"#;
+    fn test_parse() {
+        let string = r#"a: h1 {
+                x: $me | cat(i: "x", ) | meow();
+
+                y: h2#x > .cat  {
+
+                };
+            };"#;
         let parser = Parser::new(&string);
         let (arena, r) = parser.parse().expect("parsing failed");
 
-        let elements = arena.flatten(r);
-        let element = &elements[0].value;
+        let stmts = arena.flatten(r);
+        let stmt = &stmts[0].value;
+
+        assert_eq!(stmt.id, "a");
+        let RValue::Element(element) = &stmt.value else {
+            panic!("expected element");
+        };
 
         assert_eq!(
             fmt_selector(&element.selector_head, &arena.flatten(element.selectors)),
@@ -376,16 +379,15 @@ mod tests {
 
         assert_eq!(element.ops, SelectorOpts::One);
         let statements = arena.flatten(element.statements);
-        let stmt = statements[0]
-            .value
-            .as_ref()
-            .expect_err("should be a statement");
+
+        let stmt = &statements[0].value;
+
         assert!(
             matches!(
                 stmt,
                 Statement {
                     id: "x",
-                    value: "me",
+                    value: RValue::Leaf(Leaf::Var("me")),
                     ..
                 }
             ),
@@ -416,7 +418,12 @@ mod tests {
             &args[..]
         );
 
-        let element = statements[1].value.as_ref().expect("should b an element");
+        let stmt = &statements[1].value;
+
+        let RValue::Element(element) = &stmt.value else {
+            panic!("Expected element");
+        };
+
         assert!(element.statements.is_none());
         assert_eq!(
             fmt_selector(&element.selector_head, &arena.flatten(element.selectors)),

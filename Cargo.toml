@@ -6,4 +6,10 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 regex = "1.10"
+reqwest = "0.12.5"
 scraper = "0.19"
+tokio = { version = "1.38.0", features = ["full"] }
+filter-proc-macro = { path = "./filter-proc-macro" }
+
+[workspace]
+members = [".", "filter-proc-macro"]

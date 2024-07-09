@@ -30,8 +30,8 @@ pub enum Token {
     BraceOpen,
     /// a closing brace `}` to end an element block
     BraceClose,
-    /// an at sign `@` to indicate a statement
-    At,
+    /// a dollar sign `$` to dereference a variable
+    Dollar,
     /// a pipe `|` to indicate a filter
     Pipe,
     /// an opening parenthesis `(` to start a filter call
@@ -109,7 +109,7 @@ mod statics {
             Collection <- r"\[\]"
             BraceOpen <- r"\{"
             BraceClose <- r"\}"
-            At <- "@"
+            Dollar <- r"\$"
             Pipe <- r"\|"
             ParenOpen <- r"\("
             ParenClose <- r"\)"
@@ -141,11 +141,6 @@ impl<'a> Scanner<'a> {
     #[must_use]
     pub const fn new(slice: &'a str) -> Self {
         Self { slice, idx: 0 }
-    }
-
-    #[must_use]
-    pub fn window(&self, n: usize) -> &str {
-        &self.slice[self.idx - n..self.idx + n]
     }
 
     #[must_use]

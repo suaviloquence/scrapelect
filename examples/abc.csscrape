@@ -1,0 +1,8 @@
+header: h2 {
+    txt: $text;
+
+    link: a {
+        child: $element;
+        parent: $txt;
+    };
+};

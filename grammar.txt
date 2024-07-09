@@ -1,9 +1,18 @@
-csscrape -> element_list
+csscrape -> statement_list
 
-element_list -> element element_list
-             |  ""
+statement_list -> statement statement_list
+               |  ""
 
-element -> selector_list selector_ops `{` element_statement_list `}`
+statement -> ID `:` rvalue filter_list `;`
+
+rvalue -> element
+       |  leaf
+
+element -> maybe_url selector_list selector_ops `{` statement_list `}`
+
+maybe_url -> variable
+          |  STRING
+          |  ""
 
 selector_list -> selector selector2
 
@@ -27,12 +36,6 @@ selector_opts -> `?`
               |  `[]`
               |  ""
 
-element_statement_list -> element element_statement_list
-                       |  statement element_statement_list
-                       |  ""
-
-statement -> `@` ID : ID filter_list `;`
-
 filter_list -> `|` ID `(` arg_list `)` filter_list
             |  ""
 
@@ -42,7 +45,9 @@ arg_list ->	ID `:` leaf arg_list2
 arg_list_2 -> `,` arg_list
            |  ""
 
-leaf        ->  ID
+leaf        ->  variable
             |   INT
             |   FLOAT
             |   STRING
+
+variable -> `$` ID

@@ -1,13 +1,22 @@
 import random
 
 def csscrape():
-    return [[element_list]]
+    return [[statement_list]]
 
-def element_list():
-    return [[element, element_list]]
+def statement_list():
+    return [[statement, statement_list]]
+
+def statement():
+    return [[randid(), ":", rvalue, filter_list, ";"]]
+
+def rvalue():
+    return [[element], [leaf]]
 
 def element():
-    return [[selector_list, selector_ops, "{", element_statement_list, "}"]]
+    return [[maybe_url, selector_list, selector_ops, "{", statement_list, "}"]]
+
+def maybe_url():
+    return [[variable], [randstr()]]
 
 def selector_list():
     return [[selector, selector2]]
@@ -25,12 +34,6 @@ def selector_combinator():
 def selector_ops():
     return [["?"], ["[]"]]
 
-def element_statement_list():
-    return [[element, element_statement_list], [statement, element_statement_list]]
-
-def statement():
-    return [["@", randid(), ":", randid(), filter_list, ";"]]
-
 def filter_list():
     return [["|", randid(), "(", arg_list, ")", filter_list]]
 
@@ -41,7 +44,10 @@ def arg_list2():
     return [[",", arg_list]]
 
 def leaf():
-    return [[randid()], [randflt()], [randstr()], [randint()]]
+    return [[variable], [randflt()], [randstr()], [randint()]]
+
+def variable():
+    return [["$", randid()]]
 
 e = lambda: ""
 def randid():
@@ -58,11 +64,11 @@ def randstr():
     return f'"{randid()}"'
 
 bases = {
-    element_list,
+    statement_list,
+    maybe_url,
     selector2,
     selector_combinator,
     selector_ops,
-    element_statement_list,
     filter_list,
     arg_list,
     arg_list2
@@ -86,6 +92,4 @@ def fuzz(recurse_prob, f=csscrape, a=None):
 if __name__ == '__main__':
     import sys
     r = float(sys.argv[1])
-    with open("test_statements.txt", 'w+') as fp:
-        for x in fuzz(r): print(x)
-        # fp.writelines(map(lambda x: f"{x}\n", program()))
+    for x in fuzz(r): print(x)

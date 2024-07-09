@@ -87,6 +87,18 @@ pub enum SelectorCombinator<'a> {
     And(Selector<'a>),
 }
 
+impl fmt::Display for SelectorCombinator<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NextSibling(s) => write!(f, " + {s}"),
+            Self::Child(s) => write!(f, " > {s}"),
+            Self::SubsequentSibling(s) => write!(f, " ~ {s}"),
+            Self::Descendent(s) => write!(f, " {s}"),
+            Self::And(s) => write!(f, "{s}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectorOpts {
     One,
@@ -96,11 +108,9 @@ pub enum SelectorOpts {
 
 macro_rules! ast_enum {
         {
-            ALL:
             // macro limitations can only have nonrepeating metavariable  at this scope
             // see https://github.com/rust-lang/rust/issues/96184
-            #[$allmeta: meta]
-            AST:
+            #![$allmeta: meta]
             $(#[$astmeta: meta])*
             pub enum Ast<'a> {
                 $(
@@ -179,32 +189,43 @@ macro_rules! ast_enum {
 
 #[derive(Debug, Clone)]
 pub enum Leaf<'a> {
-    Id(&'a str),
+    Var(&'a str),
     Int(i64),
     Float(f64),
     String(Cow<'a, str>),
 }
 
 #[derive(Debug, Clone)]
+pub enum RValue<'a> {
+    Leaf(Leaf<'a>),
+    Element(Element<'a>),
+}
+
+#[derive(Debug, Clone)]
+pub enum Url<'a> {
+    Parent,
+    String(Cow<'a, str>),
+    Var(&'a str),
+}
+
+#[derive(Debug, Clone)]
 pub struct Statement<'a> {
     pub id: &'a str,
-    pub value: &'a str,
+    pub value: RValue<'a>,
     pub filters: Option<AstRef<'a, FilterList<'a>>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Element<'a> {
+    pub url: Url<'a>,
     pub selector_head: Selector<'a>,
     pub selectors: Option<AstRef<'a, SelectorList<'a>>>,
     pub ops: SelectorOpts,
-    pub statements: Option<AstRef<'a, ElementStatementList<'a>>>,
+    pub statements: Option<AstRef<'a, StatementList<'a>>>,
 }
 
 ast_enum! {
-ALL:
-#[derive(Debug, Clone)]
-AST:
-/// An abstract syntax tree
+#![derive(Debug, Clone)]
 pub enum Ast<'a> {
     @flatten[self, .next]
     SelectorList {
@@ -224,15 +245,9 @@ pub enum Ast<'a> {
         next: Option<AstRef<'a, FilterList<'a>>>,
     },
     @flatten[self, .next]
-    ElementStatementList {
-        /// read as Either type
-        value: Result<Element<'a>, Statement<'a>>,
-        next: Option<AstRef<'a, ElementStatementList<'a>>>,
-    },
-    @flatten[self, .next]
-    ElementList {
-        value: Element<'a>,
-        next: Option<AstRef<'a, ElementList<'a>>>,
+    StatementList {
+        value: Statement<'a>,
+        next: Option<AstRef<'a, StatementList<'a>>>,
     },
 }
 }
