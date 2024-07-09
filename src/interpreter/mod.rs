@@ -11,6 +11,7 @@ mod filter;
 pub use filter::Filter;
 
 impl<'ast> Element<'ast> {
+    #[must_use]
     pub fn to_selector_str(&self, ast: &AstArena<'ast>) -> String {
         use std::fmt::Write as _;
 
@@ -180,16 +181,16 @@ pub fn interpret<'ast, 'doc>(
     };
 
     for statement in ast.flatten(head) {
-        interpret_statement(&ast, &statement.value, &mut ctx)?;
+        interpret_statement(ast, &statement.value, &mut ctx)?;
     }
 
     Ok(ctx.variables)
 }
 
-fn interpret_statement<'ast, 'doc, 'ctx>(
+fn interpret_statement<'ast>(
     ast: &'ast AstArena<'ast>,
     statement: &Statement<'ast>,
-    ctx: &mut ElementContext<'ast, 'doc, '_>,
+    ctx: &mut ElementContext<'ast, '_, '_>,
 ) -> anyhow::Result<()> {
     match statement.id {
         immutable @ ("document" | "text") => {
@@ -198,7 +199,7 @@ fn interpret_statement<'ast, 'doc, 'ctx>(
         id => {
             let value = match &statement.value {
                 RValue::Leaf(l) => ctx.leaf_to_value(l)?,
-                RValue::Element(e) => interpret_element(ctx, ctx.element, ast, &e)?,
+                RValue::Element(e) => interpret_element(ctx, ctx.element, ast, e)?,
             };
 
             let value = apply_filters(ast.flatten(statement.filters).into_iter(), value, ctx, ast)?;

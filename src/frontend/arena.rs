@@ -16,11 +16,17 @@ pub struct Ref<'a, T>(NonZeroUsize, PhantomData<&'a T>);
 /// explicit impl because we want it even when `T` is not Clone
 impl<'a, T> Clone for Ref<'a, T> {
     fn clone(&self) -> Self {
-        Self(self.0, PhantomData)
+        *self
     }
 }
 
 impl<'a, T> Copy for Ref<'a, T> {}
+
+impl<T> Default for Arena<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl<T> Arena<T> {
     #[inline]

@@ -22,10 +22,10 @@ pub trait Filter {
     type Value<'doc>: TryFromValue<'doc>;
     type Args<'doc>: Args<'doc>;
 
-    fn apply<'ast, 'doc, 'ctx>(
+    fn apply<'doc>(
         value: Self::Value<'doc>,
         args: Self::Args<'doc>,
-        ctx: &mut ElementContext<'ast, 'doc, 'ctx>,
+        ctx: &mut ElementContext<'_, 'doc, '_>,
     ) -> anyhow::Result<Value<'doc>>;
 }
 
@@ -83,10 +83,10 @@ macro_rules! mk_filter {
 mk_filter! {
     dbg(value: Value<'doc>, msg: Option<Cow<'doc, str>>)
 
-    fn apply<'ast, 'doc, 'ctx>(
+    fn apply<'doc>(
         value: Self::Value<'doc>,
         args: Self::Args<'doc>,
-        _: &mut ElementContext<'ast, 'doc, 'ctx>
+        _: &mut ElementContext<'_, 'doc, '_>
     ) -> anyhow::Result<Value<'doc>> {
         eprintln!("{}: {}", args.msg.as_deref().unwrap_or("debug message"), value);
 
@@ -97,10 +97,10 @@ mk_filter! {
 mk_filter! {
     tee(value: Value<'doc>, into: Cow<'doc, str>)
 
-    fn apply<'ast, 'doc, 'ctx>(
+    fn apply<'doc>(
         value: Self::Value<'doc>,
         args: Self::Args<'doc>,
-        ctx: &mut ElementContext<'ast, 'doc, 'ctx>,
+        ctx: &mut ElementContext<'_, 'doc, '_>,
     ) -> anyhow::Result<Value<'doc>> {
         ctx.variables.insert(args.into.into_owned().into(), value.clone());
 
@@ -111,10 +111,10 @@ mk_filter! {
 mk_filter! {
     strip(value: Cow<'doc, str>)
 
-    fn apply<'ast, 'doc, 'ctx>(
+    fn apply<'doc>(
         value: Self::Value<'doc>,
         _: Self::Args<'doc>,
-        _: &mut ElementContext<'ast, 'doc, 'ctx>,
+        _: &mut ElementContext<'_, 'doc, '_>,
     ) -> anyhow::Result<Value<'doc>> {
         let cow = match value {
             Cow::Borrowed(b) => Cow::Borrowed(b.trim()),
@@ -131,11 +131,11 @@ macro_rules! dispatch {
     };
 }
 
-pub fn dispatch_filter<'ast, 'doc, 'ctx>(
+pub fn dispatch_filter<'ast, 'doc>(
     name: &str,
     value: Value<'doc>,
     args: BTreeMap<&'ast str, Value<'doc>>,
-    ctx: &mut ElementContext<'ast, 'doc, 'ctx>,
+    ctx: &mut ElementContext<'ast, 'doc, '_>,
 ) -> anyhow::Result<Value<'doc>> {
     match name {
         "dbg" => dispatch!(dbg, value, args, ctx),

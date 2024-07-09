@@ -155,8 +155,8 @@ impl<'a> Parser<'a> {
         Ok(Element {
             url,
             selector_head,
-            ops,
             selectors,
+            ops,
             statements,
         })
     }

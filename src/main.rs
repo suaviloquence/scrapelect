@@ -50,10 +50,7 @@ async fn main() -> anyhow::Result<()> {
             .await
             .with_context(|| format!("Error fetching `{url}`"))?;
 
-        let text = req
-            .text()
-            .await
-            .with_context(|| format!("Error getting body text"))?;
+        let text = req.text().await.context("Error getting body text")?;
 
         let html = scraper::Html::parse_document(&text);
 

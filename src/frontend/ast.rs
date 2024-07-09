@@ -23,7 +23,7 @@ pub trait AstArenaFlatten<'a>: AstType<'a> {
 /// explicit impl because we want it even when `T` is not Clone
 impl<'a, T> Clone for AstRef<'a, T> {
     fn clone(&self) -> Self {
-        Self(self.0, PhantomData)
+        *self
     }
 }
 
@@ -53,7 +53,7 @@ impl<'a> AstArena<'a> {
     pub fn flatten<T: AstArenaFlatten<'a>>(&self, r: Option<AstRef<'a, T>>) -> Vec<&T> {
         let mut out = Vec::new();
         if let Some(r) = r {
-            self.get_variant(r).flatten(&self, &mut out);
+            self.get_variant(r).flatten(self, &mut out);
         }
         out
     }
