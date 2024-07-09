@@ -3,7 +3,7 @@ use std::{borrow::Cow, cell::OnceCell, collections::BTreeMap};
 use anyhow::Context;
 
 use crate::frontend::{
-    ast::{AstRef, Element, FilterList, Leaf, RValue, Statement, StatementList},
+    ast::{AstRef, Element, FilterList, Leaf, RValue, SelectorOpts, Statement, StatementList},
     AstArena,
 };
 
@@ -12,6 +12,31 @@ mod value;
 
 pub use filter::Filter;
 pub use value::{TryFromValue, Value};
+
+/// Whether we are matching a list, singular item, or optional item
+/// as specified by the user
+#[derive(Debug)]
+enum ExecutionMode<T> {
+    One(T),
+    Optional(Option<T>),
+    Collection(Vec<T>),
+}
+
+impl<T> ExecutionMode<T> {
+    fn try_map<F, U, E>(self, mut f: F) -> Result<ExecutionMode<U>, E>
+    where
+        F: FnMut(T) -> Result<U, E>,
+    {
+        use ExecutionMode::{Collection, One, Optional};
+
+        Ok(match self {
+            One(t) => One(f(t)?),
+            Optional(Some(t)) => Optional(Some(f(t)?)),
+            Optional(None) => Optional(None),
+            Collection(vec) => Collection(vec.into_iter().map(f).collect::<Result<_, _>>()?),
+        })
+    }
+}
 
 impl<'ast> Element<'ast> {
     #[must_use]
@@ -94,30 +119,45 @@ fn interpret_element<'ast, 'doc, 'ctx>(
         )
     })?;
 
-    // TODO: multiple/optional
-    let element_ref = root
-        .select(&selector)
-        .next()
-        .with_context(|| format!("Expected exactly one `{selector_str}`"))?;
+    let mut selection = root.select(&selector);
 
-    let mut ctx = ElementContext {
-        element: element_ref,
-        variables: BTreeMap::new(),
-        text: OnceCell::new(),
-        parent: Some(parent),
+    let element_refs = match element.ops {
+        // TODO: take the first, or fail if there are > 1?
+        SelectorOpts::One => ExecutionMode::One(
+            selection
+                .next()
+                .with_context(|| format!("Expected exactly one `{selector_str}`"))?,
+        ),
+        SelectorOpts::Optional => ExecutionMode::Optional(selection.next()),
+        SelectorOpts::Collection => ExecutionMode::Collection(selection.collect()),
     };
 
-    for statement in ast.flatten(element.statements) {
-        let statement = &statement.value;
-        interpret_statement(ast, statement, &mut ctx)?;
-    }
+    let values = element_refs.try_map(|element_ref| {
+        let mut ctx = ElementContext {
+            element: element_ref,
+            variables: BTreeMap::new(),
+            text: OnceCell::new(),
+            parent: Some(parent),
+        };
 
-    Ok(Value::Structure(
-        ctx.variables
-            .into_iter()
-            .map(|(k, v)| (Cow::Owned(k.into_owned()), v))
-            .collect(),
-    ))
+        for statement in ast.flatten(element.statements) {
+            let statement = &statement.value;
+            interpret_statement(ast, statement, &mut ctx)?;
+        }
+
+        Ok::<_, anyhow::Error>(Value::Structure(
+            ctx.variables
+                .into_iter()
+                .map(|(k, v)| (Cow::Owned(k.into_owned()), v))
+                .collect(),
+        ))
+    })?;
+
+    Ok(match values {
+        ExecutionMode::One(x) | ExecutionMode::Optional(Some(x)) => x,
+        ExecutionMode::Optional(None) => Value::Null,
+        ExecutionMode::Collection(l) => Value::List(l),
+    })
 }
 
 impl<'ast, 'doc, 'ctx> ElementContext<'ast, 'doc, 'ctx> {
