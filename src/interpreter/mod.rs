@@ -218,3 +218,77 @@ fn apply_filters<'ast, 'doc, 'ctx>(
     }
     Ok(value)
 }
+
+#[cfg(test)]
+pub fn interpret_string_harness(
+    program: &'static str,
+    html: &'static str,
+) -> anyhow::Result<BTreeMap<Cow<'static, str>, Value<'static>>> {
+    let (ast, head) = crate::frontend::Parser::new(program).parse()?;
+    let htmls = Box::leak(Box::new(vec![scraper::Html::parse_document(html)]));
+    interpret(htmls, Box::leak(Box::new(ast)), head)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Value::*;
+
+    #[test]
+    fn test_basic() {
+        let output = super::interpret_string_harness(
+            r#"
+            h3: h3 {
+                txt: $text;
+
+                a: a[] {
+                    child: $text;
+                    parent: $txt;
+                };
+                div: div? {};
+            };
+            "#,
+            r#"
+                <html>
+                    <h3>Hello,<a>Hello, child</a><span></span>parent!</h3>
+                </html>
+            "#,
+        )
+        .expect("parsing and interpreting should succeed");
+
+        let Some(Structure(d)) = output.get("h3") else {
+            panic!("got {output:?}, expected h3: {{ .. }}")
+        };
+
+        let Some(List(a)) = d.get("a") else {
+            panic!("got {output:?}, expected a: [ .. ]");
+        };
+
+        let Some(Structure(a)) = a.get(0) else {
+            panic!("got {output:?}");
+        };
+
+        assert!(
+            match a.get("parent") {
+                Some(String(x)) => x == "Hello,parent!",
+                _ => false,
+            },
+            "got {output:?}"
+        );
+
+        assert!(
+            match a.get("child") {
+                Some(String(x)) => x == "Hello, child",
+                _ => false,
+            },
+            "got {output:?}"
+        );
+
+        assert!(
+            match d.get("txt") {
+                Some(String(x)) => x == "Hello,parent!",
+                _ => false,
+            },
+            "got {output:?}"
+        );
+    }
+}
