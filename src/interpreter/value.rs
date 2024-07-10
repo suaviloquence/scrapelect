@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 macro_rules! mk_value {
     (
@@ -50,10 +50,61 @@ mk_value! {
         Null,
         Float(f64),
         Int(i64),
-        String(Cow<'a, str>),
+        String(Arc<str>),
         Element(scraper::ElementRef<'a>),
         List(Vec<Value<'a>>),
-        Structure(BTreeMap<Cow<'a, str>, Value<'a>>),
+        Structure(BTreeMap<Arc<str>, Value<'a>>),
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum DataValue {
+    Null,
+    Float(f64),
+    Int(i64),
+    String(Arc<str>),
+    List(Vec<DataValue>),
+    Structure(BTreeMap<Arc<str>, DataValue>),
+}
+
+impl<'a> TryFrom<Value<'a>> for DataValue {
+    type Error = scraper::ElementRef<'a>;
+
+    fn try_from(value: Value<'a>) -> Result<Self, Self::Error> {
+        match value {
+            Value::Null => Ok(DataValue::Null),
+            Value::Float(x) => Ok(DataValue::Float(x)),
+            Value::Int(n) => Ok(DataValue::Int(n)),
+            Value::String(s) => Ok(DataValue::String(s)),
+            Value::Element(e) => Err(e),
+            // TODO: just skip?
+            Value::List(l) => Ok(DataValue::List(
+                l.into_iter()
+                    .filter_map(|x| Self::try_from(x).ok())
+                    .collect(),
+            )),
+            Value::Structure(s) => Ok(DataValue::Structure(
+                s.into_iter()
+                    .filter_map(|(k, v)| Self::try_from(v).ok().map(|v| (k, v)))
+                    .collect(),
+            )),
+        }
+    }
+}
+
+impl<'a> From<DataValue> for Value<'a> {
+    fn from(value: DataValue) -> Self {
+        use Value::*;
+        match value {
+            DataValue::Null => Null,
+            DataValue::Float(x) => Float(x),
+            DataValue::Int(n) => Int(n),
+            DataValue::String(s) => String(s),
+            DataValue::List(l) => List(l.into_iter().map(Self::from).collect()),
+            DataValue::Structure(s) => {
+                Structure(s.into_iter().map(|(k, v)| (k, Self::from(v))).collect())
+            }
+        }
     }
 }
 
@@ -109,6 +160,31 @@ impl fmt::Display for Value<'_> {
     }
 }
 
+impl fmt::Display for DataValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Null => write!(f, "null"),
+            Self::Int(n) => write!(f, "{n}"),
+            Self::Float(x) => write!(f, "{x}"),
+            Self::String(s) => write!(f, r#""{s}""#),
+            Self::List(ls) => {
+                write!(f, "[")?;
+                for x in ls {
+                    write!(f, "{x}, ")?;
+                }
+                write!(f, "]")
+            }
+            Self::Structure(map) => {
+                write!(f, "{{ ")?;
+                for (k, v) in map {
+                    write!(f, r#""{k}": {v}, "#)?;
+                }
+                write!(f, " }}")
+            }
+        }
+    }
+}
+
 impl<'a, T> From<Option<T>> for Value<'a>
 where
     T: Into<Value<'a>>,
@@ -121,9 +197,9 @@ where
     }
 }
 
-impl<'a> From<&'a str> for Value<'a> {
-    fn from(value: &'a str) -> Self {
-        Self::String(Cow::Borrowed(value))
+impl<'a, 'b> From<&'b str> for Value<'a> {
+    fn from(value: &'b str) -> Self {
+        Self::String(Arc::from(value))
     }
 }
 

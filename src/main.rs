@@ -1,8 +1,8 @@
-use std::{borrow::Cow, env};
+use std::{env, sync::Arc};
 
 use anyhow::Context;
 use frontend::Parser;
-use interpreter::Value;
+use interpreter::DataValue;
 
 pub mod frontend;
 pub mod interpreter;
@@ -59,14 +59,13 @@ async fn main() -> anyhow::Result<()> {
 
     let ((ast, head), html) = tokio::try_join!(parse_fut, fetch_fut)?;
 
-    let mut htmls = vec![html];
+    let results = interpreter::interpret(html, &ast, head)?;
 
-    let results = interpreter::interpret(&mut htmls, &ast, head)?;
-
-    let results = Value::Structure(
+    let results = DataValue::Structure(
         results
+            .0
             .into_iter()
-            .map(|(k, v)| (Cow::Owned(k.into_owned()), v))
+            .map(|(k, v)| (Arc::from(&*k), v))
             .collect(),
     );
 

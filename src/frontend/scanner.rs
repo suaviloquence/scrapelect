@@ -164,7 +164,7 @@ impl<'a> Scanner<'a> {
             .max_by_key(|x| x.value.len())
             .unwrap_or(Lexeme {
                 token: Token::Unknown,
-                value: &self.slice[self.idx..self.idx + 1],
+                value: &self.slice[self.idx..=self.idx],
             })
     }
 

@@ -25,103 +25,76 @@ pub trait Filter {
     fn apply<'doc>(
         value: Self::Value<'doc>,
         args: Self::Args<'doc>,
-        ctx: &mut ElementContext<'_, 'doc, '_>,
+        ctx: &mut ElementContext<'_, 'doc>,
     ) -> anyhow::Result<Value<'doc>>;
 }
 
-macro_rules! mk_filter {
-    ($name:ident (value: $val:ty, #[argt] $argt:ty $(=> #[argtt] $argtt:item)?) $fn:item) => {
-        mod $name {
-            #[allow(unused_imports)]
-            use super::{Args, ElementContext, Value};
-            #[allow(unused_imports)]
-            use std::borrow::Cow;
-            #[allow(unused_imports)]
-            use scraper::ElementRef;
+#[allow(unused_imports)]
+mod prelude {
+    pub use super::{Args, Filter};
+    pub use crate::interpreter::{ElementContext, TryFromValue, Value};
+    pub use scraper::ElementRef;
+    pub use std::sync::Arc;
+}
 
-            #[derive(Debug)]
-            pub struct Filter;
+mod dbg {
+    use super::prelude::*;
 
-            $($argtt)?
+    #[derive(Debug, Args)]
+    pub struct Args {
+        msg: Option<Arc<str>>,
+    }
 
-            impl super::Filter for Filter {
-                type Args<'doc> = $argt;
-                type Value<'doc> = $val;
+    #[derive(Debug)]
+    pub struct Filter;
 
-                $fn
-            }
-        }
-    };
+    impl super::Filter for Filter {
+        type Value<'doc> = Value<'doc>;
 
-    ($name: ident (value: $val:ty$(, $arg:ident: $ty:ty)+) $fn:item) => {
-        mk_filter! {
-            $name (
-                value: $val,
-                #[argt] MyArgs<'doc> =>
-                #[argtt]
-                #[derive(Debug, super::Args)]
-                pub struct MyArgs<'doc> {
-                    $(
-                        $arg: $ty,
-                    )+
-                }
-            )
-            $fn
-        }
-    };
+        type Args<'doc> = Args;
 
-    ($name:ident (value: $val:ty) $fn:item) => {
-        mk_filter! {
-            $name (
-                value: $val,
-                #[argt] ()
-            ) $fn
+        fn apply<'doc>(
+            value: Self::Value<'doc>,
+            args: Self::Args<'doc>,
+            _ctx: &mut ElementContext<'_, 'doc>,
+        ) -> anyhow::Result<Value<'doc>> {
+            eprintln!(
+                "{}: {}",
+                value,
+                args.msg.as_deref().unwrap_or("dbg message")
+            );
+
+            Ok(value)
         }
     }
 }
 
-mk_filter! {
-    dbg(value: Value<'doc>, msg: Option<Cow<'doc, str>>)
+mod tee {
+    use std::borrow::Cow;
 
-    fn apply<'doc>(
-        value: Self::Value<'doc>,
-        args: Self::Args<'doc>,
-        _: &mut ElementContext<'_, 'doc, '_>
-    ) -> anyhow::Result<Value<'doc>> {
-        eprintln!("{}: {}", args.msg.as_deref().unwrap_or("debug message"), value);
+    use super::prelude::*;
 
-        Ok(value)
+    #[derive(Debug, Args)]
+    pub struct Args {
+        into: Arc<str>,
     }
-}
 
-mk_filter! {
-    tee(value: Value<'doc>, into: Cow<'doc, str>)
+    #[derive(Debug)]
+    pub struct Filter;
 
-    fn apply<'doc>(
-        value: Self::Value<'doc>,
-        args: Self::Args<'doc>,
-        ctx: &mut ElementContext<'_, 'doc, '_>,
-    ) -> anyhow::Result<Value<'doc>> {
-        ctx.variables.insert(args.into.into_owned().into(), value.clone());
+    impl super::Filter for Filter {
+        type Value<'doc> = Value<'doc>;
 
-        Ok(value)
-    }
-}
+        type Args<'doc> = Args;
 
-mk_filter! {
-    strip(value: Cow<'doc, str>)
-
-    fn apply<'doc>(
-        value: Self::Value<'doc>,
-        _: Self::Args<'doc>,
-        _: &mut ElementContext<'_, 'doc, '_>,
-    ) -> anyhow::Result<Value<'doc>> {
-        let cow = match value {
-            Cow::Borrowed(b) => Cow::Borrowed(b.trim()),
-            Cow::Owned(s) => Cow::Owned(s.trim().to_owned()),
-        };
-
-        Ok(Value::String(cow))
+        fn apply<'doc>(
+            value: Self::Value<'doc>,
+            args: Self::Args<'doc>,
+            ctx: &mut ElementContext<'_, 'doc>,
+        ) -> anyhow::Result<Value<'doc>> {
+            ctx.set_var(Cow::from((*args.into).to_owned()), value.clone())?;
+            Ok(value)
+        }
     }
 }
 
@@ -135,12 +108,12 @@ pub fn dispatch_filter<'ast, 'doc>(
     name: &str,
     value: Value<'doc>,
     args: BTreeMap<&'ast str, Value<'doc>>,
-    ctx: &mut ElementContext<'ast, 'doc, '_>,
+    ctx: &mut ElementContext<'ast, 'doc>,
 ) -> anyhow::Result<Value<'doc>> {
     match name {
         "dbg" => dispatch!(dbg, value, args, ctx),
         "tee" => dispatch!(tee, value, args, ctx),
-        "strip" => dispatch!(strip, value, args, ctx),
+        // "strip" => dispatch!(strip, value, args, ctx),
         other => anyhow::bail!("unrecognized filter `{other}`"),
     }
 }
