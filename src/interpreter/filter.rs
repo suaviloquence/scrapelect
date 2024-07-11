@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::LazyLock};
 
 use super::{ElementContext, TryFromValue, Value};
 
@@ -27,6 +27,27 @@ pub trait Filter {
         args: Self::Args<'doc>,
         ctx: &mut ElementContext<'_, 'doc>,
     ) -> anyhow::Result<Value<'doc>>;
+}
+
+pub trait FilterDyn {
+    fn apply<'ast, 'doc>(
+        &self,
+        value: Value<'doc>,
+        args: BTreeMap<&'ast str, Value<'doc>>,
+        ctx: &mut ElementContext<'ast, 'doc>,
+    ) -> anyhow::Result<Value<'doc>>;
+}
+
+impl<F: Filter> FilterDyn for F {
+    #[inline]
+    fn apply<'ast, 'doc>(
+        &self,
+        value: Value<'doc>,
+        args: BTreeMap<&'ast str, Value<'doc>>,
+        ctx: &mut ElementContext<'ast, 'doc>,
+    ) -> anyhow::Result<Value<'doc>> {
+        F::apply(value.try_into()?, F::Args::try_deserialize(args)?, ctx)
+    }
 }
 
 #[allow(unused_imports)]
@@ -83,11 +104,29 @@ fn take<'doc>(
     Ok(value.remove(&key).unwrap_or(Value::Null))
 }
 
-macro_rules! dispatch {
-    ($id: ident, $value:ident, $args:ident, $ctx:ident) => {
-        $id::Filter::apply($value.try_into()?, Args::try_deserialize($args)?, $ctx)
+macro_rules! build_map {
+    ($(
+        $id: ident,
+    )*) => {
+        [$(
+            (stringify!($id), Box::new($id()) as Box<dyn FilterDyn + Send + Sync>),
+
+        )*]
     };
 }
+
+static BUILTIN_FILTERS: LazyLock<BTreeMap<&'static str, Box<dyn FilterDyn + Send + Sync>>> =
+    LazyLock::new(|| {
+        build_map! {
+            dbg,
+            tee,
+            strip,
+            take,
+            attrs,
+        }
+        .into_iter()
+        .collect()
+    });
 
 pub fn dispatch_filter<'ast, 'doc>(
     name: &str,
@@ -95,12 +134,8 @@ pub fn dispatch_filter<'ast, 'doc>(
     args: BTreeMap<&'ast str, Value<'doc>>,
     ctx: &mut ElementContext<'ast, 'doc>,
 ) -> anyhow::Result<Value<'doc>> {
-    match name {
-        "dbg" => dispatch!(dbg, value, args, ctx),
-        "tee" => dispatch!(tee, value, args, ctx),
-        "strip" => dispatch!(strip, value, args, ctx),
-        "attrs" => dispatch!(attrs, value, args, ctx),
-        "take" => dispatch!(take, value, args, ctx),
-        other => anyhow::bail!("unrecognized filter `{other}`"),
+    match BUILTIN_FILTERS.get(name) {
+        Some(filter) => filter.apply(value, args, ctx),
+        None => anyhow::bail!("unrecognized filter `{name}`"),
     }
 }

@@ -4,6 +4,13 @@ use syn::{
     punctuated::Punctuated, Data, DeriveInput, GenericParam, Lifetime, LifetimeParam, Pat, PatIdent,
 };
 
+/// Procedural macro to derive [`scrapelect::interpreter::filter::Args`] on a structure.
+///
+/// If you need to use the value lifetime, use `'doc`, otherwise the generator will get confused.
+///
+/// # Panics
+/// `#[derive(Args)]` must be called on a *valid* structure with named fields (not a tuple struct).
+/// If not, it will panic and fail.
 #[proc_macro_derive(Args)]
 pub fn derive_args(input: TokenStream) -> TokenStream {
     let ast = syn::parse(input).expect("token stream should be valid");
@@ -88,6 +95,7 @@ pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let func: syn::ItemFn = syn::parse(item).expect("token stream should be valid");
     let inner = func.clone();
     let name = func.sig.ident;
+    let vis = func.vis;
 
     let (value, args) = func
         .sig
@@ -122,10 +130,10 @@ pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let call_args = std::iter::once(value.clone().into_token_stream())
         .chain(arg.clone().map(|arg| quote! {args.#arg}))
-        .chain(ctx.clone().into_iter().map(|x| x.into_token_stream()));
+        .chain(ctx.clone().into_iter().map(|x| quote! {#x }));
 
     quote! {
-        mod #name {
+        #vis fn #name() -> impl crate::interpreter::filter::Filter {
             use crate::interpreter::filter::prelude::*;
 
             #[derive(Debug, crate::interpreter::filter::Args)]
@@ -141,7 +149,8 @@ pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 type Args<'doc> = Args<'doc>;
                 type Value<'doc> = #vty;
 
-                fn apply<'ctx>(#value: Self::Value<'ctx>,
+                fn apply<'ctx>(
+                    #value: Self::Value<'ctx>,
                     args: Self::Args<'ctx>,
                     #[allow(unused)]
                     ctx: &mut crate::interpreter::ElementContext<'_, 'ctx>
@@ -155,6 +164,8 @@ pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     #name (#(#call_args),*)
                 }
             }
+
+            Filter
         }
     }
     .into()
