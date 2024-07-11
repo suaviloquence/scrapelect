@@ -1,6 +1,6 @@
 import random
 
-def csscrape():
+def scrapelect():
     return [[statement_list]]
 
 def statement_list():
@@ -74,7 +74,7 @@ bases = {
     arg_list2
 }
 
-def fuzz(recurse_prob, f=csscrape, a=None):
+def fuzz(recurse_prob, f=scrapelect, a=None):
     if a is None: a = recurse_prob
     if f in bases:
         r = random.random()

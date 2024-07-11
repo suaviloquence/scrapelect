@@ -11,7 +11,7 @@ pub mod interpreter;
 async fn main() -> anyhow::Result<()> {
     let mut args = env::args();
     // skip name
-    let name = args.next().context("usage: csscrape <filename> <url>")?;
+    let name = args.next().context("usage: scrapelect <filename> <url>")?;
 
     let filename = args
         .next()
