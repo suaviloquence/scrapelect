@@ -192,7 +192,7 @@ impl<'ast, 'ctx> ElementContext<'ast, 'ctx> {
                 self.element
                     .children()
                     .filter_map(|x| x.value().as_text().map(|x| &**x))
-                    .collect::<Box<str>>()
+                    .collect::<String>()
                     .into()
             })))),
             var => match self.variables.0.get(var) {

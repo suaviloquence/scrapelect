@@ -146,6 +146,10 @@ pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     #[allow(unused)]
                     ctx: &mut crate::interpreter::ElementContext<'_, 'ctx>
                 ) -> anyhow::Result<crate::interpreter::Value<'ctx>> {
+                    // we can't elide the 'doc lifetime here because it needs to
+                    // also be in the struct, unless we make a smarter macro
+                    // (i.e., lifetime-aware)
+                    #[allow(clippy::needless_lifetimes, clippy::needless_pass_by_value, clippy::unnecessary_wraps)]
                     #inner
 
                     #name (#(#call_args),*)
