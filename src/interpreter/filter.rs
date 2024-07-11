@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, sync::LazyLock};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, LazyLock},
+};
 
 use super::{ElementContext, TryFromValue, Value};
 
@@ -50,14 +53,6 @@ impl<F: Filter> FilterDyn for F {
     }
 }
 
-#[allow(unused_imports)]
-pub mod prelude {
-    pub use super::{Args, Filter};
-    pub use crate::interpreter::{ElementContext, TryFromValue, Value};
-    pub use scraper::ElementRef;
-    pub use std::{collections::BTreeMap, sync::Arc};
-}
-
 #[filter_fn]
 fn id<'doc>(value: Value<'doc>) -> anyhow::Result<Value<'doc>> {
     Ok(value)
@@ -86,7 +81,7 @@ fn strip<'doc>(value: Arc<str>) -> anyhow::Result<Value<'doc>> {
 }
 
 #[filter_fn]
-fn attrs<'doc>(value: ElementRef<'doc>) -> anyhow::Result<Value<'doc>> {
+fn attrs<'doc>(value: scraper::ElementRef<'doc>) -> anyhow::Result<Value<'doc>> {
     Ok(Value::Structure(
         value
             .value()

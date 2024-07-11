@@ -134,8 +134,6 @@ pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     quote! {
         #vis fn #name() -> impl crate::interpreter::filter::Filter {
-            use crate::interpreter::filter::prelude::*;
-
             #[derive(Debug, crate::interpreter::filter::Args)]
             pub struct Args<'doc> {
                 _marker: core::marker::PhantomData<&'doc ()>,
