@@ -1,6 +1,8 @@
 use proc_macro::{Span, TokenStream};
-use quote::quote;
-use syn::{punctuated::Punctuated, Data, DeriveInput, GenericParam, Lifetime, LifetimeParam};
+use quote::{quote, ToTokens};
+use syn::{
+    punctuated::Punctuated, Data, DeriveInput, GenericParam, Lifetime, LifetimeParam, Pat, PatIdent,
+};
 
 #[proc_macro_derive(Args)]
 pub fn derive_args(input: TokenStream) -> TokenStream {
@@ -39,17 +41,25 @@ fn derive_args_impl(ast: &DeriveInput) -> TokenStream {
         .into();
     };
 
-    let Some(field) = &s
-        .fields
-        .iter()
-        .map(|x| x.ident.as_ref())
-        .collect::<Option<Vec<_>>>()
-    else {
-        return quote! {
-            compile_error!("#[derive(Args)] is not supported on tuple structs.");
+    let field = s.fields.iter().map(|x| {
+        if let Some(id) = &x.ident {
+            id
+        } else {
+            panic!("#[derive(Args)] not supported on a tuple struct")
         }
-        .into();
-    };
+    });
+
+    let field_extract = field
+        .clone()
+        .filter(|x| !x.to_string().starts_with("_marker"));
+
+    let field_assign = field.clone().map(|x| {
+        if x.to_string().starts_with("_marker") {
+            quote! { #x: Default::default() }
+        } else {
+            quote! { #x }
+        }
+    });
 
     quote! {
         impl #impl_generics crate::interpreter::filter::Args<'doc> for #name #ty_generics #where_clause {
@@ -57,14 +67,89 @@ fn derive_args_impl(ast: &DeriveInput) -> TokenStream {
                 mut args: ::std::collections::BTreeMap<&'ast str, crate::interpreter::Value<'doc>>
             ) -> anyhow::Result<Self> {
                 #(
-                    let #field = crate::interpreter::TryFromValue::try_from_option_value(args.remove(stringify!(#field)))?;
+                    let #field_extract = crate::interpreter::TryFromValue::try_from_option_value(args.remove(stringify!(#field_extract)))?;
                 )*
 
                 if !args.is_empty() {
                     anyhow::bail!("Found unexpected arguments {args:?}");
                 }
 
-                Ok(Self { #(#field),* })
+                Ok(Self {
+                    #(#field_assign),*
+                })
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro_attribute]
+pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let func: syn::ItemFn = syn::parse(item).expect("token stream should be valid");
+    let inner = func.clone();
+    let name = func.sig.ident;
+
+    let (value, args) = func
+        .sig
+        .inputs
+        .into_iter()
+        .map(|arg| match arg {
+            syn::FnArg::Receiver(_) => panic!("Calling #[filter_fn] on a method"),
+            syn::FnArg::Typed(x) => match *x.pat {
+                Pat::Ident(PatIdent {
+                    ident,
+                    subpat: None,
+                    ..
+                }) => (ident, x.ty),
+                other => panic!("I don't know what to do with pattern {other:?}"),
+            },
+        })
+        .partition::<Vec<_>, _>(|(ident, _)| ident == "value");
+    let (ctx, args) = args
+        .into_iter()
+        .partition::<Vec<_>, _>(|(ident, _)| ident == "ctx");
+
+    let [(value, vty)]: [_; 1] = value.try_into().expect("expected exactly 1 value arg");
+
+    let arg = args.iter().map(|(id, _)| id);
+    let ty = args.iter().map(|(_, ty)| ty);
+
+    let (ctx, _cty) = if let Some(x) = ctx.into_iter().next() {
+        (Some(x.0), Some(x.1))
+    } else {
+        (None, None)
+    };
+
+    let call_args = std::iter::once(value.clone().into_token_stream())
+        .chain(arg.clone().map(|arg| quote! {args.#arg}))
+        .chain(ctx.clone().into_iter().map(|x| x.into_token_stream()));
+
+    quote! {
+        mod #name {
+            use crate::interpreter::filter::prelude::*;
+
+            #[derive(Debug, crate::interpreter::filter::Args)]
+            pub struct Args<'doc> {
+                _marker: core::marker::PhantomData<&'doc ()>,
+                #(#arg: #ty),*
+            }
+
+            #[derive(Debug)]
+            pub struct Filter;
+
+            impl crate::interpreter::filter::Filter for Filter {
+                type Args<'doc> = Args<'doc>;
+                type Value<'doc> = #vty;
+
+                fn apply<'ctx>(#value: Self::Value<'ctx>,
+                    args: Self::Args<'ctx>,
+                    #[allow(unused)]
+                    ctx: &mut crate::interpreter::ElementContext<'_, 'ctx>
+                ) -> anyhow::Result<crate::interpreter::Value<'ctx>> {
+                    #inner
+
+                    #name (#(#call_args),*)
+                }
             }
         }
     }

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use super::{ElementContext, TryFromValue, Value};
 
-pub use filter_proc_macro::Args;
+pub use filter_proc_macro::{filter_fn, Args};
 
 pub trait Args<'doc>: Sized {
     fn try_deserialize<'ast>(args: BTreeMap<&'ast str, Value<'doc>>) -> anyhow::Result<Self>;
@@ -30,72 +30,57 @@ pub trait Filter {
 }
 
 #[allow(unused_imports)]
-mod prelude {
+pub mod prelude {
     pub use super::{Args, Filter};
     pub use crate::interpreter::{ElementContext, TryFromValue, Value};
     pub use scraper::ElementRef;
-    pub use std::sync::Arc;
+    pub use std::{collections::BTreeMap, sync::Arc};
 }
 
-mod dbg {
-    use super::prelude::*;
-
-    #[derive(Debug, Args)]
-    pub struct Args {
-        msg: Option<Arc<str>>,
-    }
-
-    #[derive(Debug)]
-    pub struct Filter;
-
-    impl super::Filter for Filter {
-        type Value<'doc> = Value<'doc>;
-
-        type Args<'doc> = Args;
-
-        fn apply<'doc>(
-            value: Self::Value<'doc>,
-            args: Self::Args<'doc>,
-            _ctx: &mut ElementContext<'_, 'doc>,
-        ) -> anyhow::Result<Value<'doc>> {
-            eprintln!(
-                "{}: {}",
-                value,
-                args.msg.as_deref().unwrap_or("dbg message")
-            );
-
-            Ok(value)
-        }
-    }
+#[filter_fn]
+fn id<'doc>(value: Value<'doc>) -> anyhow::Result<Value<'doc>> {
+    Ok(value)
 }
 
-mod tee {
-    use std::borrow::Cow;
+#[filter_fn]
+fn dbg<'doc>(value: Value<'doc>, msg: Option<Arc<str>>) -> anyhow::Result<Value<'doc>> {
+    eprintln!("{}: {}", value, msg.as_deref().unwrap_or("dbg message"));
 
-    use super::prelude::*;
+    Ok(value)
+}
 
-    #[derive(Debug, Args)]
-    pub struct Args {
-        into: Arc<str>,
-    }
+#[filter_fn]
+fn tee<'doc>(
+    value: Value<'doc>,
+    into: Arc<str>,
+    ctx: &mut ElementContext<'_, 'doc>,
+) -> anyhow::Result<Value<'doc>> {
+    ctx.set_var(into.to_string().into(), value.clone())?;
+    Ok(value)
+}
 
-    #[derive(Debug)]
-    pub struct Filter;
+#[filter_fn]
+fn strip<'doc>(value: Arc<str>) -> anyhow::Result<Value<'doc>> {
+    Ok(Value::String(value.trim().into()))
+}
 
-    impl super::Filter for Filter {
-        type Value<'doc> = Value<'doc>;
+#[filter_fn]
+fn attrs<'doc>(value: ElementRef<'doc>) -> anyhow::Result<Value<'doc>> {
+    Ok(Value::Structure(
+        value
+            .value()
+            .attrs()
+            .map(|(k, v)| (Arc::from(k), Value::String(Arc::from(v))))
+            .collect(),
+    ))
+}
 
-        type Args<'doc> = Args;
-
-        fn apply<'doc>(
-            value: Self::Value<'doc>,
-            args: Self::Args<'doc>,
-            ctx: &mut ElementContext<'_, 'doc>,
-        ) -> anyhow::Result<Value<'doc>> {
-            ctx.set_var(Cow::from((*args.into).to_owned()), value.clone())?;
-            Ok(value)
-        }
-    }
+#[filter_fn]
+fn take<'doc>(
+    mut value: BTreeMap<Arc<str>, Value<'doc>>,
+    key: Arc<str>,
+) -> anyhow::Result<Value<'doc>> {
+    Ok(value.remove(&key).unwrap_or(Value::Null))
 }
 
 macro_rules! dispatch {
@@ -113,7 +98,9 @@ pub fn dispatch_filter<'ast, 'doc>(
     match name {
         "dbg" => dispatch!(dbg, value, args, ctx),
         "tee" => dispatch!(tee, value, args, ctx),
-        // "strip" => dispatch!(strip, value, args, ctx),
+        "strip" => dispatch!(strip, value, args, ctx),
+        "attrs" => dispatch!(attrs, value, args, ctx),
+        "take" => dispatch!(take, value, args, ctx),
         other => anyhow::bail!("unrecognized filter `{other}`"),
     }
 }
