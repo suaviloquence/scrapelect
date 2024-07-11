@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
+use serde::Serialize;
+
 macro_rules! mk_value {
     (
         $(#[$meta:meta])*
@@ -57,14 +59,21 @@ mk_value! {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(untagged)]
 pub enum DataValue {
+    #[serde(serialize_with = "serialize_null_as_option")]
     Null,
     Float(f64),
     Int(i64),
     String(Arc<str>),
     List(Vec<DataValue>),
     Structure(BTreeMap<Arc<str>, DataValue>),
+}
+
+#[inline]
+fn serialize_null_as_option<S: serde::Serializer>(se: S) -> Result<S::Ok, S::Error> {
+    None::<()>.serialize(se)
 }
 
 impl<'a> TryFrom<Value<'a>> for DataValue {

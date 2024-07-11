@@ -10,6 +10,8 @@ reqwest = "0.12.5"
 scraper = "0.19"
 tokio = { version = "1.38.0", features = ["full"] }
 filter-proc-macro = { path = "./filter-proc-macro" }
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive", "rc"] }
 
 [workspace]
 members = [".", "filter-proc-macro"]

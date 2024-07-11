@@ -69,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
             .collect(),
     );
 
-    println!("{results}");
+    println!("{}", serde_json::to_string_pretty(&results)?);
 
     Ok(())
 }

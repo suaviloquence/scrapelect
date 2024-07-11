@@ -266,7 +266,39 @@ pub fn interpret_string_harness(
 
 #[cfg(test)]
 mod tests {
-    use super::DataValue::*;
+    use super::{interpret, DataValue::*};
+
+    fn integration_test(filename: &str) -> anyhow::Result<()> {
+        let input = std::fs::read_to_string(format!("examples/inputs/{filename}.html"))?;
+        let script = std::fs::read_to_string(format!("examples/scrps/{filename}.scrp"))?;
+        let output: serde_json::Value = serde_json::from_reader(std::fs::File::open(format!(
+            "examples/outputs/{filename}.json"
+        ))?)?;
+
+        let (ast, head) = crate::frontend::Parser::new(&script)
+            .parse()
+            .expect("parse error");
+        let html = scraper::Html::parse_document(&input);
+
+        let result = interpret(html, &ast, head)?;
+        let result = serde_json::to_value(result.0)?;
+        assert_eq!(output, result);
+
+        Ok(())
+    }
+
+    macro_rules! integration_test {
+        {
+            $($name: ident,)*
+        } => {
+            $(
+                #[test]
+                fn $name() -> anyhow::Result<()> {
+                    integration_test(stringify!($name))
+                }
+            )*
+        };
+    }
 
     #[test]
     fn test_basic() {
@@ -325,5 +357,10 @@ mod tests {
             },
             "got {output:?}"
         );
+    }
+
+    integration_test! {
+        abc,
+        attr,
     }
 }
