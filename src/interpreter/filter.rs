@@ -3,7 +3,9 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-use super::{ElementContext, TryFromValue, Value};
+use anyhow::Context as _;
+
+use super::{value::Or, ElementContext, TryFromValue, Value};
 
 pub use filter_proc_macro::{filter_fn, Args};
 
@@ -99,6 +101,32 @@ fn take<'doc>(
     Ok(value.remove(&key).unwrap_or(Value::Null))
 }
 
+#[filter_fn]
+fn int<'doc>(value: Or<i64, Or<f64, Arc<str>>>) -> anyhow::Result<Value<'doc>> {
+    let n = match value {
+        Or::A(n) => n,
+        Or::B(Or::A(x)) => x as i64,
+        Or::B(Or::B(s)) => s
+            .parse()
+            .with_context(|| format!("`{s}` is not an integer."))?,
+    };
+
+    Ok(Value::Int(n))
+}
+
+#[filter_fn]
+fn float<'doc>(value: Or<f64, Or<i64, Arc<str>>>) -> anyhow::Result<Value<'doc>> {
+    let x = match value {
+        Or::A(x) => x,
+        Or::B(Or::A(n)) => n as f64,
+        Or::B(Or::B(s)) => s
+            .parse()
+            .with_context(|| format!("`{s}` is not a float."))?,
+    };
+
+    Ok(Value::Float(x))
+}
+
 macro_rules! build_map {
     ($(
         $id: ident,
@@ -118,6 +146,8 @@ static BUILTIN_FILTERS: LazyLock<BTreeMap<&'static str, Box<dyn FilterDyn + Send
             strip,
             take,
             attrs,
+            int,
+            float,
         }
         .into_iter()
         .collect()

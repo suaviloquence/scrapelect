@@ -217,3 +217,21 @@ impl<'a> From<scraper::ElementRef<'a>> for Value<'a> {
         Self::Element(value)
     }
 }
+
+#[derive(Debug, Clone)]
+pub enum Or<A, B> {
+    A(A),
+    B(B),
+}
+
+impl<'a, A: TryFromValue<'a>, B: TryFromValue<'a>> TryFromValue<'a> for Or<A, B> {
+    fn try_from_value(value: Value<'a>) -> anyhow::Result<Self> {
+        match value.clone().try_into() {
+            Ok(a) => Ok(Self::A(a)),
+            Err(a) => match value.try_into() {
+                Ok(b) => Ok(Self::B(b)),
+                Err(b) => anyhow::bail!("Error: {a} or {b}"),
+            },
+        }
+    }
+}
