@@ -9,6 +9,8 @@ use super::{value::Or, ElementContext, TryFromValue, Value};
 
 pub use filter_proc_macro::{filter_fn, Args};
 
+type Structure<'doc> = BTreeMap<Arc<str>, Value<'doc>>;
+
 pub trait Args<'doc>: Sized {
     fn try_deserialize<'ast>(args: BTreeMap<&'ast str, Value<'doc>>) -> anyhow::Result<Self>;
 }
@@ -94,10 +96,7 @@ fn attrs<'doc>(value: scraper::ElementRef<'doc>) -> anyhow::Result<Value<'doc>> 
 }
 
 #[filter_fn]
-fn take<'doc>(
-    mut value: BTreeMap<Arc<str>, Value<'doc>>,
-    key: Arc<str>,
-) -> anyhow::Result<Value<'doc>> {
+fn take<'doc>(mut value: Structure<'doc>, key: Arc<str>) -> anyhow::Result<Value<'doc>> {
     Ok(value.remove(&key).unwrap_or(Value::Null))
 }
 
@@ -127,6 +126,59 @@ fn float<'doc>(value: Or<f64, Or<i64, Arc<str>>>) -> anyhow::Result<Value<'doc>>
     Ok(Value::Float(x))
 }
 
+#[filter_fn]
+fn nth<'doc>(value: Vec<Value<'doc>>, i: i64) -> anyhow::Result<Value<'doc>> {
+    let i = match i {
+        ..=-1 => value.len() - i.unsigned_abs() as usize,
+        _ => i as usize,
+    };
+
+    match value.into_iter().nth(i) {
+        Some(x) => Ok(x),
+        None => anyhow::bail!(""),
+    }
+}
+
+#[filter_fn]
+fn keys<'doc>(value: Structure<'doc>) -> anyhow::Result<Value<'doc>> {
+    Ok(Value::List(value.into_keys().map(Value::String).collect()))
+}
+
+#[filter_fn]
+fn values<'doc>(value: Structure<'doc>) -> anyhow::Result<Value<'doc>> {
+    Ok(Value::List(value.into_values().collect()))
+}
+
+// TODO: this is quite wasteful
+#[filter_fn]
+fn entries<'doc>(value: Structure<'doc>) -> anyhow::Result<Value<'doc>> {
+    Ok(Value::List(
+        value
+            .into_iter()
+            .map(|(k, v)| Value::List(vec![Value::String(k), v]))
+            .collect(),
+    ))
+}
+
+#[filter_fn]
+fn from_entries<'doc>(value: Vec<Value<'doc>>) -> anyhow::Result<Value<'doc>> {
+    value
+        .into_iter()
+        .map(|x| {
+            let tuple: Vec<_> = x.try_into()?;
+
+            let [k, v] = tuple
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("Expected a `List([key, value])`"))?;
+
+            let k: Arc<str> = k.try_into()?;
+
+            Ok((k, v))
+        })
+        .collect::<anyhow::Result<_>>()
+        .map(Value::Structure)
+}
+
 macro_rules! build_map {
     ($(
         $id: ident,
@@ -148,6 +200,11 @@ static BUILTIN_FILTERS: LazyLock<BTreeMap<&'static str, Box<dyn FilterDyn + Send
             attrs,
             int,
             float,
+            nth,
+            keys,
+            values,
+            entries,
+            from_entries,
         }
         .into_iter()
         .collect()
