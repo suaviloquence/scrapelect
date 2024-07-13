@@ -35,4 +35,4 @@ jobs:
     - name: verify formatting
       uses: actions-rust-lang/rustfmt@v1
     - name: run clippy
-      run: cargo clippy -- --deny clippy::all --warn clippy::pedantic
+      run: cargo clippy -- --deny clippy::all --warn clippy::pedantic --warn warnings
