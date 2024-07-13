@@ -90,6 +90,23 @@ fn derive_args_impl(ast: &DeriveInput) -> TokenStream {
     .into()
 }
 
+/// Procedural macro that makes a function that generates a stateless `impl Filter`
+/// filter using the function body as the method for `apply`.
+///
+/// Parameter conversion: We generate an `impl Args<'doc>` struct using the parameters
+/// to the function.  The value/ctx lifetime must be `'doc` for compatibility with
+/// `#[derive(Args)]`.  Here is how the arguments are converted
+///
+/// - `value: T` - this must be present, and `T` must be `TryFromValue<'doc>`
+/// - `ctx: ElementContext<'_, 'doc>`: this is optionally present.  If it is present, it must have the given type.
+/// - `...other_arg: T`: For all other args, they will be put in `Self::Args`, and `T` must be `TryFromValue<'doc>`.
+///
+/// Note that patterns are not supported beyond `(mut)? x: T`
+///
+/// The return type must be `crate::interpreter::Result<Value<'doc>>`
+///
+/// # Panics
+/// Panics if the token stream is not valid or the function signature is not as specified.
 #[proc_macro_attribute]
 pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let func: syn::ItemFn = syn::parse(item).expect("token stream should be valid");
