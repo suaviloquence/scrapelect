@@ -10,8 +10,9 @@ rvalue -> element
 
 element -> maybe_url selector_list selector_ops `{` statement_list `}`
 
-maybe_url -> variable
-          |  STRING
+inline -> `<` leaf filter_list `>`
+
+maybe_url -> inline
           |  ""
 
 selector_list -> selector selector2

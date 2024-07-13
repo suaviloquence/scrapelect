@@ -4,8 +4,8 @@ use std::{borrow::Cow, ops::Not};
 use super::{
     arena::Arena,
     ast::{
-        ArgList, Ast, AstRef, Element, FilterList, Leaf, RValue, Selector, SelectorCombinator,
-        SelectorList, SelectorOpts, Statement, StatementList, Url,
+        ArgList, Ast, AstRef, Element, FilterList, Inline, Leaf, RValue, Selector,
+        SelectorCombinator, SelectorList, SelectorOpts, Statement, StatementList,
     },
     scanner::{Lexeme, Scanner, Token},
 };
@@ -88,7 +88,7 @@ impl<'a> Parser<'a> {
         let lx = self.scanner.peek_non_whitespace();
 
         match lx.token {
-            Token::Id => self.parse_element().map(RValue::Element),
+            Token::Id | Token::Less => self.parse_element().map(RValue::Element),
             _ => self.parse_leaf().map(RValue::Leaf),
         }
     }
@@ -129,7 +129,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_element(&mut self) -> Result<'a, Element<'a>> {
-        let url = self.parse_url()?;
+        let url = self.parse_maybe_url()?;
         let selector_head = self.parse_selector()?;
         let selectors = self.parse_selector_list()?;
         let lx = self.scanner.peek_non_whitespace();
@@ -161,19 +161,28 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_url(&mut self) -> Result<'a, Url<'a>> {
+    fn parse_maybe_url(&mut self) -> Result<'a, Option<Inline<'a>>> {
         let lx = self.scanner.peek_non_whitespace();
-        match lx.token {
-            Token::Dollar => {
-                self.scanner.eat_token();
-                let id = self.try_eat(Token::Id)?.value;
-                Ok(Url::Var(id))
-            }
-            Token::String => {
-                self.scanner.eat_token();
-                Ok(Url::String(parse_string_literal(lx.value)))
-            }
-            _ => Ok(Url::Parent),
+        if lx.token == Token::Less {
+            self.parse_inline().map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn parse_inline(&mut self) -> Result<'a, Inline<'a>> {
+        let lx = self.scanner.peek_non_whitespace();
+        if lx.token == Token::Less {
+            self.scanner.eat_token();
+            let value = self.parse_leaf()?;
+            let filters = self.parse_filter_list()?;
+            self.try_eat(Token::Greater)?;
+            Ok(Inline { value, filters })
+        } else {
+            Err(ParseError::UnexpectedToken {
+                expected: vec![Token::Less],
+                got: lx,
+            })
         }
     }
 

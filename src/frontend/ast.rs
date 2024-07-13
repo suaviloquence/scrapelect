@@ -202,10 +202,9 @@ pub enum RValue<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub enum Url<'a> {
-    Parent,
-    String(Cow<'a, str>),
-    Var(&'a str),
+pub struct Inline<'a> {
+    pub value: Leaf<'a>,
+    pub filters: Option<AstRef<'a, FilterList<'a>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -217,7 +216,7 @@ pub struct Statement<'a> {
 
 #[derive(Debug, Clone)]
 pub struct Element<'a> {
-    pub url: Url<'a>,
+    pub url: Option<Inline<'a>>,
     pub selector_head: Selector<'a>,
     pub selectors: Option<AstRef<'a, SelectorList<'a>>>,
     pub ops: SelectorOpts,

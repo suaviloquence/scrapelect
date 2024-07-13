@@ -16,7 +16,7 @@ pub enum Token {
     Star,
     /// the selector combinator `+` to indicate the next sibling
     Plus,
-    /// the selector combinator `>` to indicate a direct child
+    /// the selector combinator `>` to indicate a direct child or the end of an inline expansion
     Greater,
     /// the selector combinator `~` to indicate a subsequent sibling
     Tilde,
@@ -44,6 +44,8 @@ pub enum Token {
     Colon,
     /// a semicolon `;` to indicate the end of a statement
     Semi,
+    /// a less than sign `<` to indicate the start of an inline expansion
+    Less,
     /// special token to indicate the end of the file
     Eof,
     /// special token to indicate unknown token
@@ -116,6 +118,7 @@ mod statics {
             Comma <- ","
             Colon <- ":"
             Semi <- ";"
+            Less <- "<"
         };
     }
 }

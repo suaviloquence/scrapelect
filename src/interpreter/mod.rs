@@ -1,42 +1,23 @@
 use std::{borrow::Cow, cell::OnceCell, collections::BTreeMap, sync::Arc};
 
 use anyhow::Context;
+use execution_mode::ExecutionMode;
+use reqwest::IntoUrl;
 
 use crate::frontend::{
-    ast::{AstRef, Element, FilterList, Leaf, RValue, SelectorOpts, Statement, StatementList},
+    ast::{AstRef, Element, FilterList, Inline, Leaf, RValue, Statement, StatementList},
     AstArena,
 };
 
+mod execution_mode;
 mod filter;
 mod value;
 
 pub use filter::Filter;
 pub use value::{DataValue, TryFromValue, Value};
 
-/// Whether we are matching a list, singular item, or optional item
-/// as specified by the user
-#[derive(Debug)]
-enum ExecutionMode<T> {
-    One(T),
-    Optional(Option<T>),
-    Collection(Vec<T>),
-}
-
-impl<T> ExecutionMode<T> {
-    fn try_map<F, U, E>(self, mut f: F) -> Result<ExecutionMode<U>, E>
-    where
-        F: FnMut(T) -> Result<U, E>,
-    {
-        use ExecutionMode::{Collection, One, Optional};
-
-        Ok(match self {
-            One(t) => One(f(t)?),
-            Optional(Some(t)) => Optional(Some(f(t)?)),
-            Optional(None) => Optional(None),
-            Collection(vec) => Collection(vec.into_iter().map(f).collect::<Result<_, _>>()?),
-        })
-    }
-}
+type Error = anyhow::Error;
+type Result<T> = core::result::Result<T, Error>;
 
 impl<'ast> Element<'ast> {
     #[must_use]
@@ -78,6 +59,18 @@ impl<'a, 'b> From<DataVariables<'a>> for Variables<'a, 'b> {
     }
 }
 
+impl<'ast> From<DataVariables<'ast>> for DataValue {
+    fn from(value: DataVariables<'ast>) -> Self {
+        Self::Structure(
+            value
+                .0
+                .into_iter()
+                .map(|(k, v)| (Arc::from(&*k), v))
+                .collect(),
+        )
+    }
+}
+
 #[derive(Debug)]
 pub struct ElementContext<'ast, 'ctx> {
     variables: Variables<'ast, 'ctx>,
@@ -86,102 +79,163 @@ pub struct ElementContext<'ast, 'ctx> {
     parent: Option<&'ctx ElementContext<'ast, 'ctx>>,
 }
 
-pub fn interpret<'ast>(
-    html: scraper::Html,
+#[derive(Debug)]
+pub struct Interpreter<'ast> {
+    client: reqwest::Client,
     ast: &'ast AstArena<'ast>,
-    head: Option<AstRef<'ast, StatementList<'ast>>>,
-) -> anyhow::Result<DataVariables<'ast>> {
-    let mut ctx = ElementContext {
-        element: html.root_element(),
-        variables: Variables::default(),
-        text: OnceCell::new(),
-        parent: None,
-    };
-
-    for statement in ast.flatten(head) {
-        interpret_statement(ast, &statement.value, &mut ctx)?;
-    }
-
-    Ok(ctx.variables.into())
 }
 
-fn interpret_statement<'ast, 'stmt, 'ctx: 'stmt>(
-    ast: &'ast AstArena<'ast>,
-    statement: &Statement<'ast>,
-    ctx: &'stmt mut ElementContext<'ast, 'ctx>,
-) -> anyhow::Result<()> {
-    match statement.id {
-        immutable @ ("document" | "text") => {
-            anyhow::bail!("can't assign to immutable variable `{immutable}`")
-        }
-        id => {
-            let value = match &statement.value {
-                RValue::Leaf(l) => ctx.leaf_to_value(l)?,
-                RValue::Element(e) => interpret_element(ctx, ctx.element, ast, e)?.into(),
-            };
-
-            let value = apply_filters(ast.flatten(statement.filters).into_iter(), value, ctx, ast)?;
-            ctx.variables.0.insert(Cow::Borrowed(id), value);
-        }
-    }
-
-    Ok(())
-}
-
-fn interpret_element<'ast, 'ctx>(
-    parent: &'ctx ElementContext<'ast, 'ctx>,
-    root: scraper::ElementRef<'ctx>,
-    ast: &'ast AstArena<'ast>,
-    element: &Element<'ast>,
-) -> anyhow::Result<DataValue> {
-    let selector_str = element.to_selector_str(ast);
-
-    let selector = scraper::Selector::parse(&selector_str).map_err(|e| {
-        anyhow::anyhow!(
-            "Selector parse failed: {e}.  This is a program error. Selector is `{selector_str}`",
+impl<'ast> Interpreter<'ast> {
+    #[must_use]
+    #[inline]
+    pub fn new(ast: &'ast AstArena<'ast>) -> Self {
+        Self::with_client(
+            ast,
+            reqwest::Client::builder()
+                .user_agent(concat!(
+                    env!("CARGO_PKG_NAME"),
+                    " v",
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .build()
+                .expect("Default client is invalid"),
         )
-    })?;
+    }
 
-    let mut selection = root.select(&selector);
+    #[must_use]
+    #[inline]
+    pub const fn with_client(ast: &'ast AstArena<'ast>, client: reqwest::Client) -> Self {
+        Self { ast, client }
+    }
 
-    let element_refs = match element.ops {
-        // TODO: take the first, or fail if there are > 1?
-        SelectorOpts::One => ExecutionMode::One(
-            selection
-                .next()
-                .with_context(|| format!("Expected exactly one `{selector_str}`"))?,
-        ),
-        SelectorOpts::Optional => ExecutionMode::Optional(selection.next()),
-        SelectorOpts::Collection => ExecutionMode::Collection(selection.collect()),
-    };
+    #[inline]
+    pub async fn interpret<U: IntoUrl>(
+        &self,
+        root_url: U,
+        head: Option<AstRef<'ast, StatementList<'ast>>>,
+    ) -> Result<DataVariables<'ast>> {
+        let html = self.get_html(root_url).await?;
+        self.interpret_block(html.root_element(), head, None).await
+    }
 
-    let values = element_refs.try_map(|element_ref| {
+    async fn get_html<U: IntoUrl>(&self, url: U) -> Result<scraper::Html> {
+        let text = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .context("Error sending HTTP request")?
+            .text()
+            .await
+            .context("Error getting HTTP body text")?;
+        Ok(scraper::Html::parse_document(&text))
+    }
+
+    async fn interpret_block(
+        &self,
+        element: scraper::ElementRef<'_>,
+        statements: Option<AstRef<'ast, StatementList<'ast>>>,
+        parent: Option<&ElementContext<'ast, '_>>,
+    ) -> Result<DataVariables<'ast>> {
         let mut ctx = ElementContext {
-            element: element_ref,
+            element,
+            parent,
             variables: Variables::default(),
             text: OnceCell::new(),
-            parent: Some(parent),
         };
 
-        for statement in ast.flatten(element.statements) {
-            let statement = &statement.value;
-            interpret_statement(ast, statement, &mut ctx)?;
+        for statement in self.ast.flatten(statements) {
+            self.interpret_statement(&statement.value, &mut ctx).await?;
         }
 
-        Ok::<_, anyhow::Error>(DataValue::Structure(
-            ctx.variables
-                .0
-                .into_iter()
-                .filter_map(|(k, v)| DataValue::try_from(v).ok().map(|v| (Arc::from(&*k), v)))
-                .collect(),
-        ))
-    })?;
+        Ok(ctx.variables.into())
+    }
 
-    Ok(match values {
-        ExecutionMode::One(x) | ExecutionMode::Optional(Some(x)) => x,
-        ExecutionMode::Optional(None) => DataValue::Null,
-        ExecutionMode::Collection(l) => DataValue::List(l),
-    })
+    async fn interpret_statement(
+        &self,
+        statement: &Statement<'ast>,
+        ctx: &mut ElementContext<'ast, '_>,
+    ) -> Result<()> {
+        let value = match &statement.value {
+            RValue::Leaf(l) => ctx.leaf_to_value(l)?,
+            RValue::Element(e) => self.interpret_element(e, ctx).await?.into(),
+        };
+
+        let value =
+            self.apply_filters(value, self.ast.flatten(statement.filters).into_iter(), ctx)?;
+        ctx.set_var(Cow::Borrowed(statement.id), value)?;
+
+        Ok(())
+    }
+
+    async fn interpret_element(
+        &self,
+        element: &Element<'ast>,
+        ctx: &mut ElementContext<'ast, '_>,
+    ) -> anyhow::Result<DataValue> {
+        let html;
+
+        let root_element = if let Some(url) = &element.url {
+            let url: Arc<str> = self.eval_inline(url, ctx)?.try_into()?;
+            html = self.get_html(&*url).await?;
+            html.root_element()
+        } else {
+            ctx.element
+        };
+
+        let selector_str = element.to_selector_str(self.ast);
+
+        let selector = scraper::Selector::parse(&selector_str).map_err(|e| {
+            anyhow::anyhow!(
+                "Selector parse failed: {e}.  This is a program error. Selector is `{selector_str}`",
+            )
+        })?;
+
+        let selection = root_element.select(&selector);
+
+        let element_refs = ExecutionMode::hinted_from_iter(element.ops, selection)?;
+
+        let values =
+            futures::future::try_join_all(element_refs.into_iter().map(|element_ref| {
+                self.interpret_block(element_ref, element.statements, Some(ctx))
+            }))
+            .await?;
+
+        Ok(
+            ExecutionMode::hinted_from_iter(element.ops, values.into_iter().map(DataValue::from))?
+                .into_data_value(),
+        )
+    }
+
+    fn apply_filters<'ctx>(
+        &self,
+        value: Value<'ctx>,
+        mut filters: impl Iterator<Item = &'ast FilterList<'ast>>,
+        ctx: &mut ElementContext<'ast, 'ctx>,
+    ) -> Result<Value<'ctx>> {
+        filters.try_fold(value, |value, filter| {
+            let args = self
+                .ast
+                .flatten(filter.args)
+                .into_iter()
+                .map(|arg| Ok((arg.id, ctx.leaf_to_value(&arg.value)?)))
+                .collect::<Result<BTreeMap<_, _>>>()?;
+
+            filter::dispatch_filter(filter.id, value, args, ctx)
+        })
+    }
+
+    fn eval_inline<'ctx>(
+        &self,
+        inline: &Inline<'ast>,
+        ctx: &mut ElementContext<'ast, 'ctx>,
+    ) -> Result<Value<'ctx>> {
+        self.apply_filters(
+            ctx.leaf_to_value(&inline.value)?,
+            self.ast.flatten(inline.filters).into_iter(),
+            ctx,
+        )
+    }
 }
 
 impl<'ast, 'ctx> ElementContext<'ast, 'ctx> {
@@ -226,49 +280,24 @@ impl<'ast, 'ctx> ElementContext<'ast, 'ctx> {
     }
 }
 
-fn apply_filters<'ast, 'ctx>(
-    filters: impl Iterator<Item = &'ast FilterList<'ast>>,
-    value: Value<'ctx>,
-    ctx: &mut ElementContext<'ast, 'ctx>,
-    ast: &AstArena<'ast>,
-) -> anyhow::Result<Value<'ctx>> {
-    let mut value = value;
-    for f in filters {
-        let args: BTreeMap<_, _> = ast
-            .flatten(f.args)
-            .into_iter()
-            .map(|a| {
-                let value = match &a.value {
-                    Leaf::Var(id) => ctx.get_var(id)?,
-                    Leaf::Int(n) => Value::Int(*n),
-                    Leaf::String(c) => Value::String(Arc::from(&**c)),
-                    Leaf::Float(f) => Value::Float(*f),
-                };
-
-                Ok((a.id, value))
-            })
-            .collect::<anyhow::Result<_>>()?;
-
-        value = filter::dispatch_filter(f.id, value, args, ctx)?;
-    }
-    Ok(value)
-}
-
 #[cfg(test)]
-pub fn interpret_string_harness(
+pub async fn interpret_string_harness(
     program: &'static str,
     html: &'static str,
-) -> anyhow::Result<DataVariables<'static>> {
+) -> Result<DataVariables<'static>> {
     let (ast, head) = crate::frontend::Parser::new(program).parse()?;
     let html = scraper::Html::parse_document(html);
-    interpret(html, Box::leak(Box::new(ast)), head)
+    let interpreter = Interpreter::new(Box::leak(Box::new(ast)));
+    interpreter
+        .interpret_block(html.root_element(), head, None)
+        .await
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{interpret, DataValue::*};
+    use super::DataValue::*;
 
-    fn integration_test(filename: &str) -> anyhow::Result<()> {
+    async fn integration_test(filename: &str) -> anyhow::Result<()> {
         let input = std::fs::read_to_string(format!("examples/inputs/{filename}.html"))?;
         let script = std::fs::read_to_string(format!("examples/scrps/{filename}.scrp"))?;
         let output: serde_json::Value = serde_json::from_reader(std::fs::File::open(format!(
@@ -278,9 +307,12 @@ mod tests {
         let (ast, head) = crate::frontend::Parser::new(&script)
             .parse()
             .expect("parse error");
+
         let html = scraper::Html::parse_document(&input);
 
-        let result = interpret(html, &ast, head)?;
+        let result = super::Interpreter::new(&ast)
+            .interpret_block(html.root_element(), head, None)
+            .await?;
         let result = serde_json::to_value(result.0)?;
         assert_eq!(output, result);
 
@@ -292,16 +324,16 @@ mod tests {
             $($name: ident,)*
         } => {
             $(
-                #[test]
-                fn $name() -> anyhow::Result<()> {
-                    integration_test(stringify!($name))
+                #[tokio::test]
+                async fn $name() -> anyhow::Result<()> {
+                    integration_test(stringify!($name)).await
                 }
             )*
         };
     }
 
-    #[test]
-    fn test_basic() {
+    #[tokio::test]
+    async fn test_basic() {
         let output = super::interpret_string_harness(
             r#"
             h3: h3 {
@@ -320,6 +352,7 @@ mod tests {
                 </html>
             "#,
         )
+        .await
         .expect("parsing and interpreting should succeed");
 
         let Some(Structure(d)) = output.0.get("h3") else {

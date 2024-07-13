@@ -2,7 +2,7 @@ use std::{env, sync::Arc};
 
 use anyhow::Context;
 use frontend::Parser;
-use interpreter::DataValue;
+use interpreter::{DataValue, Interpreter};
 
 pub mod frontend;
 pub mod interpreter;
@@ -26,40 +26,14 @@ async fn main() -> anyhow::Result<()> {
 
     let parser = Parser::new(&pgm);
 
-    let client = reqwest::Client::builder()
-        .user_agent(env::var("USER_AGENT").unwrap_or_else(|_| {
-            format!("{}v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
-        }))
-        .build()
-        .context("error building HTTP client")?;
-    let cloned = client.clone();
-
-    let parse_fut = async move {
-        match parser.parse() {
-            Ok(x) => Ok(x),
-            Err(e) => anyhow::bail!("Parse error: {e}"),
-        }
+    let (ast, head) = match parser.parse() {
+        Ok(x) => x,
+        Err(e) => anyhow::bail!("Parse Error: {e}"),
     };
 
-    let fetch_fut = async move {
-        let client = cloned;
-        let url = url;
-        let req = client
-            .get(&url)
-            .send()
-            .await
-            .with_context(|| format!("Error fetching `{url}`"))?;
+    let interpreter = Interpreter::new(&ast);
 
-        let text = req.text().await.context("Error getting body text")?;
-
-        let html = scraper::Html::parse_document(&text);
-
-        Ok::<_, anyhow::Error>(html)
-    };
-
-    let ((ast, head), html) = tokio::try_join!(parse_fut, fetch_fut)?;
-
-    let results = interpreter::interpret(html, &ast, head)?;
+    let results = interpreter.interpret(url, head).await?;
 
     let results = DataValue::Structure(
         results
