@@ -4,8 +4,8 @@ use std::{borrow::Cow, ops::Not};
 use super::{
     arena::Arena,
     ast::{
-        ArgList, Ast, AstRef, Element, FilterList, Inline, Leaf, RValue, Selector,
-        SelectorCombinator, SelectorList, SelectorOpts, Statement, StatementList,
+        ArgList, Ast, AstRef, Element, FilterList, Inline, Leaf, Qualifier, RValue, Selector,
+        SelectorCombinator, SelectorList, Statement, StatementList,
     },
     scanner::{Lexeme, Scanner, Token},
 };
@@ -132,18 +132,14 @@ impl<'a> Parser<'a> {
         let url = self.parse_maybe_url()?;
         let selector_head = self.parse_selector()?;
         let selectors = self.parse_selector_list()?;
-        let lx = self.scanner.peek_non_whitespace();
 
-        let ops = match lx.token {
-            Token::Question => {
-                self.scanner.eat_token();
-                SelectorOpts::Optional
-            }
-            Token::Collection => {
-                self.scanner.eat_token();
-                SelectorOpts::Collection
-            }
-            _ => SelectorOpts::One,
+        let qualifier = if self.scanner.peek_non_whitespace().token == Token::ParenOpen {
+            self.scanner.eat_token();
+            let qualifier = self.parse_qualifier()?;
+            self.try_eat(Token::ParenClose)?;
+            qualifier
+        } else {
+            Qualifier::One
         };
 
         self.try_eat(Token::BraceOpen)?;
@@ -156,7 +152,7 @@ impl<'a> Parser<'a> {
             url,
             selector_head,
             selectors,
-            ops,
+            qualifier,
             statements,
         })
     }
@@ -200,7 +196,7 @@ impl<'a> Parser<'a> {
         }
 
         let sel = match lx.token {
-            Token::BraceOpen | Token::Question | Token::Collection => return Ok(None),
+            Token::BraceOpen | Token::ParenOpen => return Ok(None),
             // invariant: peek_next_whitespace is one of Id | Hash | Dot | Star
             // whitespace is eaten in the above block.
             Token::Whitespace => SelectorCombinator::Descendent(self.parse_selector()?),
@@ -276,7 +272,10 @@ impl<'a> Parser<'a> {
             let args = self.parse_arg_list()?;
             self.try_eat(Token::ParenClose)?;
             let next = self.parse_filter_list()?;
-            let r = self.arena.insert_variant(FilterList::new(id, args, next));
+            let qualifier = self.parse_qualifier()?;
+            let r = self
+                .arena
+                .insert_variant(FilterList::new(id, args, next, qualifier));
             Ok(Some(r))
         } else {
             Ok(None)
@@ -308,6 +307,21 @@ impl<'a> Parser<'a> {
                 got: lx,
             }),
         }
+    }
+
+    fn parse_qualifier(&mut self) -> Result<'a, Qualifier> {
+        let lx = self.scanner.peek_non_whitespace();
+        Ok(match lx.token {
+            Token::Question => {
+                self.scanner.eat_token();
+                Qualifier::Optional
+            }
+            Token::Star => {
+                self.scanner.eat_token();
+                Qualifier::Collection
+            }
+            _ => Qualifier::One,
+        })
     }
 }
 
@@ -386,7 +400,7 @@ mod tests {
             "h1"
         );
 
-        assert_eq!(element.ops, SelectorOpts::One);
+        assert_eq!(element.qualifier, Qualifier::One);
         let statements = arena.flatten(element.statements);
 
         let stmt = &statements[0].value;

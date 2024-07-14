@@ -193,7 +193,7 @@ impl<'ast> Interpreter<'ast> {
 
         let selection = root_element.select(&selector);
 
-        let element_refs = ExecutionMode::hinted_from_iter(element.ops, selection)?;
+        let element_refs = ExecutionMode::hinted_from_iter(element.qualifier, selection)?;
 
         let values =
             futures::future::try_join_all(element_refs.into_iter().map(|element_ref| {
@@ -201,10 +201,11 @@ impl<'ast> Interpreter<'ast> {
             }))
             .await?;
 
-        Ok(
-            ExecutionMode::hinted_from_iter(element.ops, values.into_iter().map(DataValue::from))?
-                .into_data_value(),
-        )
+        Ok(ExecutionMode::hinted_from_iter(
+            element.qualifier,
+            values.into_iter().map(DataValue::from),
+        )?
+        .into_data_value())
     }
 
     fn apply_filters<'ctx>(

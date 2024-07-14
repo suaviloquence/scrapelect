@@ -1,6 +1,6 @@
 use std::{future::Future, iter, option, vec};
 
-use crate::frontend::ast::SelectorOpts;
+use crate::frontend::ast::Qualifier;
 
 use super::DataValue;
 use anyhow::Context;
@@ -69,14 +69,14 @@ impl<T> ExecutionMode<T> {
     }
 
     pub fn hinted_from_iter<I: Iterator<Item = T>>(
-        ops: SelectorOpts,
+        ops: Qualifier,
         mut iter: I,
     ) -> anyhow::Result<Self> {
         Ok(match ops {
             // TODO: take the first, or fail if there are > 1?
-            SelectorOpts::One => One(iter.next().context("Expected exactly one value")?),
-            SelectorOpts::Optional => Optional(iter.next()),
-            SelectorOpts::Collection => Collection(iter.collect()),
+            Qualifier::One => One(iter.next().context("Expected exactly one value")?),
+            Qualifier::Optional => Optional(iter.next()),
+            Qualifier::Collection => Collection(iter.collect()),
         })
     }
 }

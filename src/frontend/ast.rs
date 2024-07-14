@@ -99,8 +99,9 @@ impl fmt::Display for SelectorCombinator<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SelectorOpts {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Qualifier {
+    #[default]
     One,
     Optional,
     Collection,
@@ -219,7 +220,7 @@ pub struct Element<'a> {
     pub url: Option<Inline<'a>>,
     pub selector_head: Selector<'a>,
     pub selectors: Option<AstRef<'a, SelectorList<'a>>>,
-    pub ops: SelectorOpts,
+    pub qualifier: Qualifier,
     pub statements: Option<AstRef<'a, StatementList<'a>>>,
 }
 
@@ -242,6 +243,7 @@ pub enum Ast<'a> {
         id: &'a str,
         args: Option<AstRef<'a, ArgList<'a>>>,
         next: Option<AstRef<'a, FilterList<'a>>>,
+        qualifier: Qualifier,
     },
     @flatten[self, .next]
     StatementList {

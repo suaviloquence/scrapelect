@@ -24,8 +24,6 @@ pub enum Token {
     Whitespace,
     /// the selector option `?` to indicate zero or one item
     Question,
-    /// the selector option `[]` to indicate a collection of items
-    Collection,
     /// an opening brace `{` to start an element block
     BraceOpen,
     /// a closing brace `}` to end an element block
@@ -108,7 +106,6 @@ mod statics {
             Tilde <- "~"
             Whitespace <- r"\p{White_Space}+"
             Question <- r"\?"
-            Collection <- r"\[\]"
             BraceOpen <- r"\{"
             BraceClose <- r"\}"
             Dollar <- r"\$"

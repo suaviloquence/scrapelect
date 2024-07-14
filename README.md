@@ -6,13 +6,13 @@ selecting on a web page.
 
 ## examples
 ```
-links: a[] {
+links: a(*) {
   href: $element | attrs() | take(key: "href");
   link_text: $text;
 }
 
 content: #content {
-  images: img[] {
+  images: img(*) {
     alt_text: $element | attrs() | take(key: "alt");
   }
 
