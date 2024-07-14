@@ -340,11 +340,11 @@ mod tests {
             h3: h3 {
                 txt: $text;
 
-                a: a[] {
+                a: a {
                     child: $text;
                     parent: $txt;
-                };
-                div: div? {};
+                }*;
+                div: div {}?;
             };
             "#,
             r#"

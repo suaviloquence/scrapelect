@@ -1,3 +1,3 @@
-link: a (*) {
+link: a {
     href: $element | attrs() | take (key: "href");
-};
+}*;

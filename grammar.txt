@@ -8,7 +8,7 @@ statement -> ID `:` rvalue filter_list `;`
 rvalue -> element
        |  leaf
 
-element -> maybe_url selector_list selector_opts `{` statement_list `}`
+element -> maybe_url selector_list `{` statement_list `}` qualifier
 
 inline -> `<` leaf filter_list `>`
 
@@ -32,10 +32,6 @@ selector_combinator -> `+`
                     |  WHITESPACE
                     |  `,`  # can we wrap in parentheses?  i don't think so.
                     |  ""
-
-selector_ops -> `(` `?` `)`
-             |  `(` `*` `)`
-             |  ""
 
 qualifier -> `?`
           |  `*`

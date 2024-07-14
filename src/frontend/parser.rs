@@ -133,20 +133,13 @@ impl<'a> Parser<'a> {
         let selector_head = self.parse_selector()?;
         let selectors = self.parse_selector_list()?;
 
-        let qualifier = if self.scanner.peek_non_whitespace().token == Token::ParenOpen {
-            self.scanner.eat_token();
-            let qualifier = self.parse_qualifier()?;
-            self.try_eat(Token::ParenClose)?;
-            qualifier
-        } else {
-            Qualifier::One
-        };
-
         self.try_eat(Token::BraceOpen)?;
 
         let statements = self.parse_statement_list()?;
 
         self.try_eat(Token::BraceClose)?;
+
+        let qualifier = self.parse_qualifier()?;
 
         Ok(Element {
             url,
