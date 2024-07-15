@@ -2,9 +2,10 @@ use std::{future::Future, iter, option, vec};
 
 use crate::frontend::ast::Qualifier;
 
-use super::DataValue;
 use anyhow::Context;
 use ExecutionMode::{Collection, One, Optional};
+
+use super::Value;
 
 /// Whether we are matching a list, singular item, or optional item
 /// as specified by the user
@@ -81,12 +82,12 @@ impl<T> ExecutionMode<T> {
     }
 }
 
-impl ExecutionMode<DataValue> {
-    pub fn into_data_value(self) -> DataValue {
+impl ExecutionMode<Value> {
+    pub fn into_value(self) -> Value {
         match self {
             One(x) | Optional(Some(x)) => x,
-            Optional(None) => DataValue::Null,
-            Collection(l) => DataValue::List(l),
+            Optional(None) => Value::Null,
+            Collection(l) => Value::List(l),
         }
     }
 }

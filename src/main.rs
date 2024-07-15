@@ -1,8 +1,9 @@
+#![feature(never_type)]
 use std::{env, sync::Arc};
 
 use anyhow::Context;
 use frontend::Parser;
-use interpreter::{DataValue, Interpreter};
+use interpreter::{Interpreter, Value};
 
 pub mod frontend;
 pub mod interpreter;
@@ -35,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
 
     let results = interpreter.interpret(url, head).await?;
 
-    let results = DataValue::Structure(
+    let results = Value::Structure(
         results
             .0
             .into_iter()

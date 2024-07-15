@@ -5,18 +5,23 @@ use std::{
 
 use anyhow::Context as _;
 
-use super::{value::Or, ElementContext, TryFromValue, Value};
+use crate::interpreter::value::ListIter;
+
+use super::{
+    value::{EValue, PValue, Pipeline, TryFromValue},
+    ElementContext, Value,
+};
 
 pub use filter_proc_macro::{filter_fn, Args};
 
-type Structure<'doc> = BTreeMap<Arc<str>, Value<'doc>>;
+type Structure<'doc> = BTreeMap<Arc<str>, PValue<'doc>>;
 
 pub trait Args<'doc>: Sized {
-    fn try_deserialize<'ast>(args: BTreeMap<&'ast str, Value<'doc>>) -> anyhow::Result<Self>;
+    fn try_deserialize<'ast>(args: BTreeMap<&'ast str, EValue<'doc>>) -> anyhow::Result<Self>;
 }
 
 impl<'a> Args<'a> for () {
-    fn try_deserialize<'ast>(args: BTreeMap<&'ast str, Value<'a>>) -> anyhow::Result<Self> {
+    fn try_deserialize<'ast>(args: BTreeMap<&'ast str, EValue<'a>>) -> anyhow::Result<Self> {
         if !args.is_empty() {
             anyhow::bail!("Found unexpected arguments `{args:?}`");
         }
@@ -26,66 +31,68 @@ impl<'a> Args<'a> for () {
 }
 
 pub trait Filter {
-    type Value<'doc>: TryFromValue<'doc>;
+    type Value<'doc>: TryFromValue<Pipeline<'doc>>;
     type Args<'doc>: Args<'doc>;
 
     fn apply<'doc>(
         value: Self::Value<'doc>,
         args: Self::Args<'doc>,
         ctx: &mut ElementContext<'_, 'doc>,
-    ) -> anyhow::Result<Value<'doc>>;
+    ) -> anyhow::Result<PValue<'doc>>;
 }
 
 pub trait FilterDyn {
     fn apply<'ast, 'doc>(
         &self,
-        value: Value<'doc>,
-        args: BTreeMap<&'ast str, Value<'doc>>,
+        value: PValue<'doc>,
+        args: BTreeMap<&'ast str, EValue<'doc>>,
         ctx: &mut ElementContext<'ast, 'doc>,
-    ) -> anyhow::Result<Value<'doc>>;
+    ) -> anyhow::Result<PValue<'doc>>;
 }
 
 impl<F: Filter> FilterDyn for F {
     #[inline]
     fn apply<'ast, 'doc>(
         &self,
-        value: Value<'doc>,
-        args: BTreeMap<&'ast str, Value<'doc>>,
+        value: PValue<'doc>,
+        args: BTreeMap<&'ast str, EValue<'doc>>,
         ctx: &mut ElementContext<'ast, 'doc>,
-    ) -> anyhow::Result<Value<'doc>> {
-        F::apply(value.try_into()?, F::Args::try_deserialize(args)?, ctx)
+    ) -> anyhow::Result<PValue<'doc>> {
+        F::apply(value.try_unwrap()?, F::Args::try_deserialize(args)?, ctx)
     }
 }
 
 #[filter_fn]
-fn id<'doc>(value: Value<'doc>) -> anyhow::Result<Value<'doc>> {
+fn id<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
     Ok(value)
 }
 
 #[filter_fn]
-fn dbg<'doc>(value: Value<'doc>, msg: Option<Arc<str>>) -> anyhow::Result<Value<'doc>> {
+fn dbg<'doc>(value: PValue<'doc>, msg: Option<Arc<str>>) -> anyhow::Result<PValue<'doc>> {
+    let value: EValue = value.into();
     eprintln!("{}: {}", value, msg.as_deref().unwrap_or("dbg message"));
 
-    Ok(value)
+    Ok(value.into())
 }
 
 #[filter_fn]
 fn tee<'doc>(
-    value: Value<'doc>,
+    value: PValue<'doc>,
     into: Arc<str>,
     ctx: &mut ElementContext<'_, 'doc>,
-) -> anyhow::Result<Value<'doc>> {
+) -> anyhow::Result<PValue<'doc>> {
+    let value: EValue = value.into();
     ctx.set_var(into.to_string().into(), value.clone())?;
-    Ok(value)
+    Ok(value.into())
 }
 
 #[filter_fn]
-fn strip<'doc>(value: Arc<str>) -> anyhow::Result<Value<'doc>> {
+fn strip<'doc>(value: Arc<str>) -> anyhow::Result<PValue<'doc>> {
     Ok(Value::String(value.trim().into()))
 }
 
 #[filter_fn]
-fn attrs<'doc>(value: scraper::ElementRef<'doc>) -> anyhow::Result<Value<'doc>> {
+fn attrs<'doc>(value: scraper::ElementRef<'doc>) -> anyhow::Result<PValue<'doc>> {
     Ok(Value::Structure(
         value
             .value()
@@ -96,87 +103,58 @@ fn attrs<'doc>(value: scraper::ElementRef<'doc>) -> anyhow::Result<Value<'doc>> 
 }
 
 #[filter_fn]
-fn take<'doc>(mut value: Structure<'doc>, key: Arc<str>) -> anyhow::Result<Value<'doc>> {
+fn take<'doc>(mut value: Structure<'doc>, key: Arc<str>) -> anyhow::Result<PValue<'doc>> {
     Ok(value.remove(&key).unwrap_or(Value::Null))
 }
 
 #[filter_fn]
-fn int<'doc>(value: Or<i64, Or<f64, Arc<str>>>) -> anyhow::Result<Value<'doc>> {
+fn int<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
     let n = match value {
-        Or::A(n) => n,
-        Or::B(Or::A(x)) => x as i64,
-        Or::B(Or::B(s)) => s
+        Value::Int(n) => n,
+        Value::Float(x) => x as i64,
+        Value::String(s) => s
             .parse()
             .with_context(|| format!("`{s}` is not an integer."))?,
+        _ => anyhow::bail!("expected an int, float, or string"),
     };
 
     Ok(Value::Int(n))
 }
 
 #[filter_fn]
-fn float<'doc>(value: Or<f64, Or<i64, Arc<str>>>) -> anyhow::Result<Value<'doc>> {
+fn float<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
     let x = match value {
-        Or::A(x) => x,
-        Or::B(Or::A(n)) => n as f64,
-        Or::B(Or::B(s)) => s
+        Value::Int(n) => n as f64,
+        Value::Float(x) => x,
+        Value::String(s) => s
             .parse()
             .with_context(|| format!("`{s}` is not a float."))?,
+        _ => anyhow::bail!("expected an int, float, or string"),
     };
 
     Ok(Value::Float(x))
 }
 
 #[filter_fn]
-fn nth<'doc>(value: Vec<Value<'doc>>, i: i64) -> anyhow::Result<Value<'doc>> {
-    let i = match i {
-        ..=-1 => value.len() - i.unsigned_abs() as usize,
-        _ => i as usize,
-    };
-
-    match value.into_iter().nth(i) {
+fn nth<'doc>(mut value: ListIter<'doc>, i: i64) -> anyhow::Result<PValue<'doc>> {
+    match value.nth(i.try_into().context("negative indices are not supported")?) {
         Some(x) => Ok(x),
         None => anyhow::bail!(""),
     }
 }
 
 #[filter_fn]
-fn keys<'doc>(value: Structure<'doc>) -> anyhow::Result<Value<'doc>> {
-    Ok(Value::List(value.into_keys().map(Value::String).collect()))
+fn keys<'doc>(value: Structure<'doc>) -> anyhow::Result<PValue<'doc>> {
+    Ok(Value::Extra(Pipeline::ListIter(Box::new(
+        value.into_keys().map(Value::String),
+    ))))
 }
 
 #[filter_fn]
-fn values<'doc>(value: Structure<'doc>) -> anyhow::Result<Value<'doc>> {
-    Ok(Value::List(value.into_values().collect()))
-}
-
-// TODO: this is quite wasteful
-#[filter_fn]
-fn entries<'doc>(value: Structure<'doc>) -> anyhow::Result<Value<'doc>> {
-    Ok(Value::List(
-        value
-            .into_iter()
-            .map(|(k, v)| Value::List(vec![Value::String(k), v]))
-            .collect(),
-    ))
-}
-
-#[filter_fn]
-fn from_entries<'doc>(value: Vec<Value<'doc>>) -> anyhow::Result<Value<'doc>> {
-    value
-        .into_iter()
-        .map(|x| {
-            let tuple: Vec<_> = x.try_into()?;
-
-            let [k, v] = tuple
-                .try_into()
-                .map_err(|_| anyhow::anyhow!("Expected a `List([key, value])`"))?;
-
-            let k: Arc<str> = k.try_into()?;
-
-            Ok((k, v))
-        })
-        .collect::<anyhow::Result<_>>()
-        .map(Value::Structure)
+fn values<'doc>(value: Structure<'doc>) -> anyhow::Result<PValue<'doc>> {
+    Ok(Value::Extra(Pipeline::ListIter(Box::new(
+        value.into_values(),
+    ))))
 }
 
 macro_rules! build_map {
@@ -203,8 +181,6 @@ static BUILTIN_FILTERS: LazyLock<BTreeMap<&'static str, Box<dyn FilterDyn + Send
             nth,
             keys,
             values,
-            entries,
-            from_entries,
         }
         .into_iter()
         .collect()
@@ -212,10 +188,10 @@ static BUILTIN_FILTERS: LazyLock<BTreeMap<&'static str, Box<dyn FilterDyn + Send
 
 pub fn dispatch_filter<'ast, 'doc>(
     name: &str,
-    value: Value<'doc>,
-    args: BTreeMap<&'ast str, Value<'doc>>,
+    value: PValue<'doc>,
+    args: BTreeMap<&'ast str, EValue<'doc>>,
     ctx: &mut ElementContext<'ast, 'doc>,
-) -> anyhow::Result<Value<'doc>> {
+) -> anyhow::Result<PValue<'doc>> {
     match BUILTIN_FILTERS.get(name) {
         Some(filter) => filter.apply(value, args, ctx),
         None => anyhow::bail!("unrecognized filter `{name}`"),

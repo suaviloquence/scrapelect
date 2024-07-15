@@ -71,10 +71,10 @@ fn derive_args_impl(ast: &DeriveInput) -> TokenStream {
     quote! {
         impl #impl_generics crate::interpreter::filter::Args<'doc> for #name #ty_generics #where_clause {
             fn try_deserialize<'ast>(
-                mut args: ::std::collections::BTreeMap<&'ast str, crate::interpreter::Value<'doc>>
+                mut args: ::std::collections::BTreeMap<&'ast str, crate::interpreter::value::EValue<'doc>>
             ) -> anyhow::Result<Self> {
                 #(
-                    let #field_extract = crate::interpreter::TryFromValue::try_from_option_value(args.remove(stringify!(#field_extract)))?;
+                    let #field_extract = crate::interpreter::value::TryFromValue::try_from_option(args.remove(stringify!(#field_extract)))?;
                 )*
 
                 if !args.is_empty() {
@@ -169,7 +169,7 @@ pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     args: Self::Args<'ctx>,
                     #[allow(unused)]
                     ctx: &mut crate::interpreter::ElementContext<'_, 'ctx>
-                ) -> anyhow::Result<crate::interpreter::Value<'ctx>> {
+                ) -> anyhow::Result<crate::interpreter::value::PValue<'ctx>> {
                     // we can't elide the 'doc lifetime here because it needs to
                     // also be in the struct, unless we make a smarter macro
                     // (i.e., lifetime-aware)

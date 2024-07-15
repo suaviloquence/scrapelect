@@ -4,6 +4,8 @@ use anyhow::Context;
 use execution_mode::ExecutionMode;
 use reqwest::IntoUrl;
 
+use value::EValue;
+
 use crate::frontend::{
     ast::{AstRef, Element, FilterList, Inline, Leaf, RValue, Statement, StatementList},
     AstArena,
@@ -14,7 +16,7 @@ mod filter;
 mod value;
 
 pub use filter::Filter;
-pub use value::{DataValue, TryFromValue, Value};
+pub use value::Value;
 
 type Error = anyhow::Error;
 type Result<T> = core::result::Result<T, Error>;
@@ -36,10 +38,10 @@ impl<'ast> Element<'ast> {
 }
 
 #[derive(Debug, Default)]
-pub struct Variables<'a, 'b>(pub BTreeMap<Cow<'a, str>, Value<'b>>);
+pub struct Variables<'a, 'b>(pub BTreeMap<Cow<'a, str>, EValue<'b>>);
 
 #[derive(Debug, Default)]
-pub struct DataVariables<'a>(pub BTreeMap<Cow<'a, str>, DataValue>);
+pub struct DataVariables<'a>(pub BTreeMap<Cow<'a, str>, Value>);
 
 impl<'a, 'b> From<Variables<'a, 'b>> for DataVariables<'a> {
     fn from(value: Variables<'a, 'b>) -> Self {
@@ -47,7 +49,7 @@ impl<'a, 'b> From<Variables<'a, 'b>> for DataVariables<'a> {
             value
                 .0
                 .into_iter()
-                .filter_map(|(k, v)| DataValue::try_from(v).ok().map(|v| (k, v)))
+                .filter_map(|(k, v)| v.into_data().map(|v| (k, v)))
                 .collect(),
         )
     }
@@ -55,11 +57,17 @@ impl<'a, 'b> From<Variables<'a, 'b>> for DataVariables<'a> {
 
 impl<'a, 'b> From<DataVariables<'a>> for Variables<'a, 'b> {
     fn from(value: DataVariables<'a>) -> Self {
-        Self(value.0.into_iter().map(|(k, v)| (k, v.into())).collect())
+        Self(
+            value
+                .0
+                .into_iter()
+                .map(|(k, v)| (k, Value::from_data(v)))
+                .collect(),
+        )
     }
 }
 
-impl<'ast> From<DataVariables<'ast>> for DataValue {
+impl<'ast> From<DataVariables<'ast>> for Value {
     fn from(value: DataVariables<'ast>) -> Self {
         Self::Structure(
             value
@@ -158,7 +166,7 @@ impl<'ast> Interpreter<'ast> {
     ) -> Result<()> {
         let value = match &statement.value {
             RValue::Leaf(l) => ctx.leaf_to_value(l)?,
-            RValue::Element(e) => self.interpret_element(e, ctx).await?.into(),
+            RValue::Element(e) => Value::from_data(self.interpret_element(e, ctx).await?),
         };
 
         let value =
@@ -172,11 +180,11 @@ impl<'ast> Interpreter<'ast> {
         &self,
         element: &Element<'ast>,
         ctx: &mut ElementContext<'ast, '_>,
-    ) -> anyhow::Result<DataValue> {
+    ) -> anyhow::Result<Value> {
         let html;
 
         let root_element = if let Some(url) = &element.url {
-            let url: Arc<str> = self.eval_inline(url, ctx)?.try_into()?;
+            let url: Arc<str> = self.eval_inline(url, ctx)?.try_unwrap()?;
             html = self.get_html(&*url).await?;
             html.root_element()
         } else {
@@ -201,36 +209,40 @@ impl<'ast> Interpreter<'ast> {
             }))
             .await?;
 
-        Ok(ExecutionMode::hinted_from_iter(
-            element.qualifier,
-            values.into_iter().map(DataValue::from),
-        )?
-        .into_data_value())
+        Ok(
+            ExecutionMode::hinted_from_iter(
+                element.qualifier,
+                values.into_iter().map(Value::from),
+            )?
+            .into_value(),
+        )
     }
 
     fn apply_filters<'ctx>(
         &self,
-        value: Value<'ctx>,
+        value: EValue<'ctx>,
         mut filters: impl Iterator<Item = &'ast FilterList<'ast>>,
         ctx: &mut ElementContext<'ast, 'ctx>,
-    ) -> Result<Value<'ctx>> {
-        filters.try_fold(value, |value, filter| {
-            let args = self
-                .ast
-                .flatten(filter.args)
-                .into_iter()
-                .map(|arg| Ok((arg.id, ctx.leaf_to_value(&arg.value)?)))
-                .collect::<Result<BTreeMap<_, _>>>()?;
+    ) -> Result<EValue<'ctx>> {
+        filters
+            .try_fold(value.into(), |value, filter| {
+                let args = self
+                    .ast
+                    .flatten(filter.args)
+                    .into_iter()
+                    .map(|arg| Ok((arg.id, ctx.leaf_to_value(&arg.value)?)))
+                    .collect::<Result<BTreeMap<_, _>>>()?;
 
-            filter::dispatch_filter(filter.id, value, args, ctx)
-        })
+                filter::dispatch_filter(filter.id, value, args, ctx)
+            })
+            .map(EValue::from)
     }
 
     fn eval_inline<'ctx>(
         &self,
         inline: &Inline<'ast>,
         ctx: &mut ElementContext<'ast, 'ctx>,
-    ) -> Result<Value<'ctx>> {
+    ) -> Result<EValue<'ctx>> {
         self.apply_filters(
             ctx.leaf_to_value(&inline.value)?,
             self.ast.flatten(inline.filters).into_iter(),
@@ -240,9 +252,9 @@ impl<'ast> Interpreter<'ast> {
 }
 
 impl<'ast, 'ctx> ElementContext<'ast, 'ctx> {
-    pub fn get_var(&self, id: &str) -> anyhow::Result<Value<'ctx>> {
+    pub fn get_var(&self, id: &str) -> anyhow::Result<EValue<'ctx>> {
         match id {
-            "element" => Ok(Value::Element(self.element)),
+            "element" => Ok(self.element.into()),
             "text" => Ok(Value::String(Arc::clone(self.text.get_or_init(|| {
                 self.element
                     .children()
@@ -260,7 +272,7 @@ impl<'ast, 'ctx> ElementContext<'ast, 'ctx> {
         }
     }
 
-    pub fn set_var(&mut self, name: Cow<'ast, str>, value: Value<'ctx>) -> anyhow::Result<()> {
+    pub fn set_var(&mut self, name: Cow<'ast, str>, value: EValue<'ctx>) -> anyhow::Result<()> {
         match &*name {
             immutable @ ("element" | "text") => {
                 anyhow::bail!("Can't assign to immutable variable `{immutable}`")
@@ -271,7 +283,7 @@ impl<'ast, 'ctx> ElementContext<'ast, 'ctx> {
         Ok(())
     }
 
-    pub fn leaf_to_value(&self, value: &Leaf<'ast>) -> anyhow::Result<Value<'ctx>> {
+    pub fn leaf_to_value(&self, value: &Leaf<'ast>) -> anyhow::Result<EValue<'ctx>> {
         match value {
             Leaf::Float(x) => Ok(Value::Float(*x)),
             Leaf::Int(n) => Ok(Value::Int(*n)),
@@ -296,7 +308,7 @@ pub async fn interpret_string_harness(
 
 #[cfg(test)]
 mod tests {
-    use super::DataValue::*;
+    use super::Value::*;
 
     async fn integration_test(filename: &str) -> anyhow::Result<()> {
         let input = std::fs::read_to_string(format!("examples/inputs/{filename}.html"))?;
