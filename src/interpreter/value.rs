@@ -217,7 +217,7 @@ impl<T: fmt::Display> fmt::Display for Value<T> {
     }
 }
 
-impl<'a, T, X> From<Option<T>> for Value<X>
+impl<T, X> From<Option<T>> for Value<X>
 where
     T: Into<Value<X>>,
 {
