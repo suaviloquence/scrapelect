@@ -88,7 +88,9 @@ impl<'a> Parser<'a> {
         let lx = self.scanner.peek_non_whitespace();
 
         match lx.token {
-            Token::Id | Token::Less => self.parse_element().map(RValue::Element),
+            Token::Id | Token::Less | Token::Dot | Token::Hash => {
+                self.parse_element().map(RValue::Element)
+            }
             _ => self.parse_leaf().map(RValue::Leaf),
         }
     }

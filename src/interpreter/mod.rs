@@ -4,10 +4,10 @@ use anyhow::Context;
 use execution_mode::ExecutionMode;
 use reqwest::IntoUrl;
 
-use value::EValue;
+use value::{EValue, ListIter};
 
 use crate::frontend::{
-    ast::{AstRef, Element, FilterList, Inline, Leaf, RValue, Statement, StatementList},
+    ast::{AstRef, Element, FilterList, Inline, Leaf, Qualifier, RValue, Statement, StatementList},
     AstArena,
 };
 
@@ -233,7 +233,16 @@ impl<'ast> Interpreter<'ast> {
                     .map(|arg| Ok((arg.id, ctx.leaf_to_value(&arg.value)?)))
                     .collect::<Result<BTreeMap<_, _>>>()?;
 
-                filter::dispatch_filter(filter.id, value, args, ctx)
+                match filter.qualifier {
+                    Qualifier::One => filter::dispatch_filter(filter.id, value, args, ctx),
+                    Qualifier::Optional if matches!(value, Value::Null) => Ok(Value::Null),
+                    Qualifier::Optional => filter::dispatch_filter(filter.id, value, args, ctx),
+                    Qualifier::Collection => value
+                        .try_unwrap::<ListIter>()?
+                        .map(|value| filter::dispatch_filter(filter.id, value, args.clone(), ctx))
+                        .collect::<Result<Vec<_>>>()
+                        .map(Value::List),
+                }
             })
             .map(EValue::from)
     }
@@ -408,5 +417,6 @@ mod tests {
     integration_test! {
         abc,
         attr,
+        qualifiers,
     }
 }

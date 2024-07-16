@@ -139,7 +139,7 @@ fn float<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
 fn nth<'doc>(mut value: ListIter<'doc>, i: i64) -> anyhow::Result<PValue<'doc>> {
     match value.nth(i.try_into().context("negative indices are not supported")?) {
         Some(x) => Ok(x),
-        None => anyhow::bail!(""),
+        None => anyhow::bail!("No element at index {i}"),
     }
 }
 

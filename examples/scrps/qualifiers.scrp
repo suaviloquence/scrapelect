@@ -1,0 +1,7 @@
+items: li {
+    special: .special { txt: $text; }? | take(key: "txt")?;
+    txt: $text;
+}*;
+
+specials: $items | take(key: "special")*;
+sixth: $items | nth(i: 5);

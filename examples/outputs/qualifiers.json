@@ -1,0 +1,45 @@
+{
+  "items": [
+    {
+      "special": null,
+      "txt": "Hello! 1"
+    },
+    {
+      "special": "special!",
+      "txt": "Hello! 2"
+    },
+    {
+      "special": null,
+      "txt": "Hello! 3"
+    },
+    {
+      "special": null,
+      "txt": "Hello! 4"
+    },
+    {
+      "special": null,
+      "txt": "Hello! 5"
+    },
+    {
+      "special": null,
+      "txt": "Hello! 6"
+    },
+    {
+      "special": null,
+      "txt": "Hello! 7"
+    }
+  ],
+  "sixth": {
+    "special": null,
+    "txt": "Hello! 6"
+  },
+  "specials": [
+    null,
+    "special!",
+    null,
+    null,
+    null,
+    null,
+    null
+  ]
+}
