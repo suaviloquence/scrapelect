@@ -2,7 +2,7 @@ use std::{borrow::Cow, cell::OnceCell, collections::BTreeMap, sync::Arc};
 
 use anyhow::Context;
 use execution_mode::ExecutionMode;
-use reqwest::IntoUrl;
+use reqwest::Url;
 
 use value::{EValue, ListIter};
 
@@ -117,25 +117,32 @@ impl<'ast> Interpreter<'ast> {
     }
 
     #[inline]
-    pub async fn interpret<U: IntoUrl>(
+    pub async fn interpret(
         &self,
-        root_url: U,
+        root_url: Url,
         head: Option<AstRef<'ast, StatementList<'ast>>>,
     ) -> Result<DataVariables<'ast>> {
         let html = self.get_html(root_url).await?;
         self.interpret_block(html.root_element(), head, None).await
     }
 
-    async fn get_html<U: IntoUrl>(&self, url: U) -> Result<scraper::Html> {
-        let text = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .context("Error sending HTTP request")?
-            .text()
-            .await
-            .context("Error getting HTTP body text")?;
+    async fn get_html(&self, url: Url) -> Result<scraper::Html> {
+        let text = match url.scheme() {
+            "http" | "https" => self
+                .client
+                .get(url)
+                .send()
+                .await
+                .context("Error sending HTTP request")?
+                .text()
+                .await
+                .context("Error getting HTTP body text")?,
+            "file" => tokio::fs::read_to_string(url.path())
+                .await
+                .with_context(|| format!("Error reading from file `{}`", url.path()))?,
+            other => anyhow::bail!("unknown URL scheme `{other}`"),
+        };
+
         Ok(scraper::Html::parse_document(&text))
     }
 
@@ -185,7 +192,12 @@ impl<'ast> Interpreter<'ast> {
 
         let root_element = if let Some(url) = &element.url {
             let url: Arc<str> = self.eval_inline(url, ctx)?.try_unwrap()?;
-            html = self.get_html(&*url).await?;
+            html = self
+                .get_html(
+                    url.parse()
+                        .with_context(|| format!("`{url}` is not a valid URL"))?,
+                )
+                .await?;
             html.root_element()
         } else {
             ctx.element

@@ -34,7 +34,13 @@ async fn main() -> anyhow::Result<()> {
 
     let interpreter = Interpreter::new(&ast);
 
-    let results = interpreter.interpret(url, head).await?;
+    let results = interpreter
+        .interpret(
+            url.parse()
+                .with_context(|| format!("Couldn't parse `{url}` into a URL"))?,
+            head,
+        )
+        .await?;
 
     let results = Value::Structure(
         results
