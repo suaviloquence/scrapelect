@@ -27,10 +27,9 @@ async fn main() -> anyhow::Result<()> {
 
     let parser = Parser::new(&pgm);
 
-    let (ast, head) = match parser.parse() {
-        Ok(x) => x,
-        Err(e) => anyhow::bail!("Parse Error: {e}"),
-    };
+    let (ast, head) = parser
+        .parse()
+        .with_context(|| format!("parse error in {filename}:"))?;
 
     let interpreter = Interpreter::new(&ast);
 

@@ -53,23 +53,7 @@ pub enum Token {
 mod statics {
     use super::Token;
     use regex::{Regex, RegexSet};
-    use std::sync::OnceLock;
-
-    pub struct Lazy<T, F = fn() -> T>(OnceLock<T>, F);
-
-    impl<T, F: Fn() -> T> Lazy<T, F> {
-        pub const fn new(f: F) -> Self {
-            Self(OnceLock::new(), f)
-        }
-    }
-
-    impl<T, F: Fn() -> T> std::ops::Deref for Lazy<T, F> {
-        type Target = T;
-
-        fn deref(&self) -> &Self::Target {
-            self.0.get_or_init(&self.1)
-        }
-    }
+    use std::sync::LazyLock;
 
     macro_rules! make_regex_set {
         {$vis: vis ($tokens: ident, $re_set: ident, $re_compiled: ident) = {$($tk: ident <- $pat: literal)*};} => {
@@ -77,13 +61,13 @@ mod statics {
                 $(Token::$tk, )*
             ];
 
-            $vis static $re_set: Lazy<RegexSet> = Lazy::new(|| RegexSet::new(&[
+            $vis static $re_set: LazyLock<RegexSet> = LazyLock::new(|| RegexSet::new(&[
                 $(
                     concat!("^", $pat),
                 )*
                 ]).expect("error building RegexSet"));
 
-            $vis static $re_compiled: Lazy<Vec<Regex>> = Lazy::new(|| vec![
+            $vis static $re_compiled: LazyLock<Vec<Regex>> = LazyLock::new(|| vec![
                 $(
                     Regex::new(concat!("^", $pat)).expect(concat!("Error building Regex `", $pat, "`")),
                 )*
@@ -124,6 +108,15 @@ mod statics {
 pub struct Scanner<'a> {
     slice: &'a str,
     idx: usize,
+    line: usize,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+#[non_exhaustive]
+pub struct Span {
+    pub line: usize,
+    pub start: usize,
+    pub end: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,13 +133,17 @@ const EOF: Lexeme = Lexeme {
 impl<'a> Scanner<'a> {
     #[must_use]
     pub const fn new(slice: &'a str) -> Self {
-        Self { slice, idx: 0 }
+        Self {
+            slice,
+            idx: 0,
+            line: 1,
+        }
     }
 
     #[must_use]
-    pub fn peek_token(&self) -> Lexeme<'a> {
+    pub fn peek_token(&self) -> (Span, Lexeme<'a>) {
         if self.idx >= self.slice.len() {
-            return EOF;
+            return (Span::default(), EOF);
         }
 
         // note to self: we can't use find_at because it still considers the
@@ -162,23 +159,44 @@ impl<'a> Scanner<'a> {
                     .as_str(),
             })
             .max_by_key(|x| x.value.len())
-            .unwrap_or(Lexeme {
-                token: Token::Unknown,
-                value: &self.slice[self.idx..=self.idx],
+            .map(|lx| {
+                (
+                    Span {
+                        line: self.line,
+                        start: self.idx,
+                        end: self.idx + lx.value.len(),
+                    },
+                    lx,
+                )
             })
+            .unwrap_or((
+                Span {
+                    line: self.line,
+                    start: self.idx,
+                    end: self.idx + 1,
+                },
+                Lexeme {
+                    token: Token::Unknown,
+                    value: &self.slice[self.idx..=self.idx],
+                },
+            ))
     }
 
-    pub fn eat_token(&mut self) -> Lexeme<'a> {
-        let lexeme = self.peek_token();
+    pub fn eat_token(&mut self) -> (Span, Lexeme<'a>) {
+        let (span, lexeme) = self.peek_token();
         self.idx += lexeme.value.len();
-        lexeme
+        self.line += lexeme.value.chars().filter(|&x| x == '\n').count();
+        (span, lexeme)
     }
 
-    pub fn peek_non_whitespace(&mut self) -> Lexeme<'a> {
-        while let Lexeme {
-            token: Token::Whitespace,
-            ..
-        } = self.peek_token()
+    pub fn peek_non_whitespace(&mut self) -> (Span, Lexeme<'a>) {
+        while let (
+            _,
+            Lexeme {
+                token: Token::Whitespace,
+                ..
+            },
+        ) = self.peek_token()
         {
             self.eat_token();
         }
@@ -193,14 +211,14 @@ mod tests {
     #[test]
     fn test_tokens() {
         let scanner = Scanner::new("");
-        assert_eq!(scanner.peek_token(), EOF);
+        assert_eq!(scanner.peek_token().1, EOF);
 
         macro_rules! test_matches {
             {$($tk: ident => $($pat: literal)+ $(!($($npat: literal)+))?)* } => {
                 $(
                     $(
                         assert_eq!(
-                            Scanner::new($pat).peek_token(),
+                            Scanner::new($pat).peek_token().1,
                             Lexeme { token: Token::$tk, value: $pat }
                         );
                     )+
@@ -208,7 +226,7 @@ mod tests {
                     $(
                         $(
                             assert_ne!(
-                                Scanner::new($npat).peek_token(),
+                                Scanner::new($npat).peek_token().1,
                                 Lexeme { token: Token::$tk, value: $npat }
                             );
                         )*
@@ -243,51 +261,51 @@ mod tests {
     #[test]
     fn test_eat() {
         let mut sc = Scanner::new("h3 h4#h5.h6 {}");
-        assert_eq!(sc.eat_token(), lx!(Id, "h3"));
-        assert_eq!(sc.eat_token(), lx!(Whitespace, " "));
-        assert_eq!(sc.eat_token(), lx!(Id, "h4"));
-        assert_eq!(sc.eat_token(), lx!(Hash, "#"));
-        assert_eq!(sc.eat_token(), lx!(Id, "h5"));
-        assert_eq!(sc.eat_token(), lx!(Dot, "."));
-        assert_eq!(sc.eat_token(), lx!(Id, "h6"));
-        assert_eq!(sc.eat_token(), lx!(Whitespace, " "));
-        assert_eq!(sc.eat_token(), lx!(BraceOpen, "{"));
-        assert_eq!(sc.eat_token(), lx!(BraceClose, "}"));
+        assert_eq!(sc.eat_token().1, lx!(Id, "h3"));
+        assert_eq!(sc.eat_token().1, lx!(Whitespace, " "));
+        assert_eq!(sc.eat_token().1, lx!(Id, "h4"));
+        assert_eq!(sc.eat_token().1, lx!(Hash, "#"));
+        assert_eq!(sc.eat_token().1, lx!(Id, "h5"));
+        assert_eq!(sc.eat_token().1, lx!(Dot, "."));
+        assert_eq!(sc.eat_token().1, lx!(Id, "h6"));
+        assert_eq!(sc.eat_token().1, lx!(Whitespace, " "));
+        assert_eq!(sc.eat_token().1, lx!(BraceOpen, "{"));
+        assert_eq!(sc.eat_token().1, lx!(BraceClose, "}"));
     }
 
     #[test]
     fn test_peek_whitespace() {
         let mut sc = Scanner::new("h3 h4#h5.h6 {}");
         sc.peek_non_whitespace();
-        assert_eq!(sc.eat_token(), lx!(Id, "h3"));
+        assert_eq!(sc.eat_token().1, lx!(Id, "h3"));
         sc.peek_non_whitespace();
-        assert_eq!(sc.eat_token(), lx!(Id, "h4"));
+        assert_eq!(sc.eat_token().1, lx!(Id, "h4"));
         sc.peek_non_whitespace();
-        assert_eq!(sc.eat_token(), lx!(Hash, "#"));
+        assert_eq!(sc.eat_token().1, lx!(Hash, "#"));
         sc.peek_non_whitespace();
-        assert_eq!(sc.eat_token(), lx!(Id, "h5"));
+        assert_eq!(sc.eat_token().1, lx!(Id, "h5"));
         sc.peek_non_whitespace();
-        assert_eq!(sc.eat_token(), lx!(Dot, "."));
+        assert_eq!(sc.eat_token().1, lx!(Dot, "."));
         sc.peek_non_whitespace();
-        assert_eq!(sc.eat_token(), lx!(Id, "h6"));
+        assert_eq!(sc.eat_token().1, lx!(Id, "h6"));
         sc.peek_non_whitespace();
-        assert_eq!(sc.eat_token(), lx!(BraceOpen, "{"));
+        assert_eq!(sc.eat_token().1, lx!(BraceOpen, "{"));
         sc.peek_non_whitespace();
-        assert_eq!(sc.eat_token(), lx!(BraceClose, "}"));
+        assert_eq!(sc.eat_token().1, lx!(BraceClose, "}"));
     }
 
     #[test]
     fn test_whitespace_mix() {
         let mut sc = Scanner::new("h3 h4#h5.h6 {}");
-        assert_eq!(sc.eat_token(), lx!(Id, "h3"));
-        assert_eq!(sc.eat_token(), lx!(Whitespace, " "));
-        assert_eq!(sc.eat_token(), lx!(Id, "h4"));
-        assert_eq!(sc.eat_token(), lx!(Hash, "#"));
-        assert_eq!(sc.eat_token(), lx!(Id, "h5"));
-        assert_eq!(sc.eat_token(), lx!(Dot, "."));
-        assert_eq!(sc.eat_token(), lx!(Id, "h6"));
+        assert_eq!(sc.eat_token().1, lx!(Id, "h3"));
+        assert_eq!(sc.eat_token().1, lx!(Whitespace, " "));
+        assert_eq!(sc.eat_token().1, lx!(Id, "h4"));
+        assert_eq!(sc.eat_token().1, lx!(Hash, "#"));
+        assert_eq!(sc.eat_token().1, lx!(Id, "h5"));
+        assert_eq!(sc.eat_token().1, lx!(Dot, "."));
+        assert_eq!(sc.eat_token().1, lx!(Id, "h6"));
         sc.peek_non_whitespace();
-        assert_eq!(sc.eat_token(), lx!(BraceOpen, "{"));
-        assert_eq!(sc.eat_token(), lx!(BraceClose, "}"));
+        assert_eq!(sc.eat_token().1, lx!(BraceOpen, "{"));
+        assert_eq!(sc.eat_token().1, lx!(BraceClose, "}"));
     }
 }
