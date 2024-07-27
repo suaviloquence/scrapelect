@@ -85,6 +85,7 @@ pub struct ElementContext<'ast, 'ctx> {
     element: scraper::ElementRef<'ctx>,
     text: OnceCell<Arc<str>>,
     parent: Option<&'ctx ElementContext<'ast, 'ctx>>,
+    url: Url,
 }
 
 #[derive(Debug)]
@@ -122,15 +123,16 @@ impl<'ast> Interpreter<'ast> {
         root_url: Url,
         head: Option<AstRef<'ast, StatementList<'ast>>>,
     ) -> Result<DataVariables<'ast>> {
-        let html = self.get_html(root_url).await?;
-        self.interpret_block(html.root_element(), head, None).await
+        let html = self.get_html(&root_url).await?;
+        self.interpret_block(html.root_element(), head, None, root_url)
+            .await
     }
 
-    async fn get_html(&self, url: Url) -> Result<scraper::Html> {
+    async fn get_html(&self, url: &Url) -> Result<scraper::Html> {
         let text = match url.scheme() {
             "http" | "https" => self
                 .client
-                .get(url)
+                .get(url.clone())
                 .send()
                 .await
                 .context("Error sending HTTP request")?
@@ -151,12 +153,14 @@ impl<'ast> Interpreter<'ast> {
         element: scraper::ElementRef<'_>,
         statements: Option<AstRef<'ast, StatementList<'ast>>>,
         parent: Option<&ElementContext<'ast, '_>>,
+        url: Url,
     ) -> Result<DataVariables<'ast>> {
         let mut ctx = ElementContext {
             element,
             parent,
             variables: Variables::default(),
             text: OnceCell::new(),
+            url,
         };
 
         for statement in self.ast.flatten(statements) {
@@ -190,17 +194,20 @@ impl<'ast> Interpreter<'ast> {
     ) -> anyhow::Result<Value> {
         let html;
 
-        let root_element = if let Some(url) = &element.url {
+        let (root_element, url) = if let Some(url) = &element.url {
             let url: Arc<str> = self.eval_inline(url, ctx)?.try_unwrap()?;
-            html = self
-                .get_html(
-                    url.parse()
-                        .with_context(|| format!("`{url}` is not a valid URL"))?,
-                )
-                .await?;
-            html.root_element()
+            let url: Url = match url.parse() {
+                Ok(url) => url,
+                Err(url::ParseError::RelativeUrlWithoutBase) => ctx
+                    .url
+                    .join(&url)
+                    .with_context(|| format!("`{url} is not a valid relative URL"))?,
+                Err(e) => anyhow::bail!("`{url}` is not a valid URL: {e}"),
+            };
+            html = self.get_html(&url).await?;
+            (html.root_element(), url)
         } else {
-            ctx.element
+            (ctx.element, ctx.url.clone())
         };
 
         let selector_str = element.to_selector_str(self.ast);
@@ -215,11 +222,10 @@ impl<'ast> Interpreter<'ast> {
 
         let element_refs = ExecutionMode::hinted_from_iter(element.qualifier, selection)?;
 
-        let values =
-            futures::future::try_join_all(element_refs.into_iter().map(|element_ref| {
-                self.interpret_block(element_ref, element.statements, Some(ctx))
-            }))
-            .await?;
+        let values = futures::future::try_join_all(element_refs.into_iter().map(|element_ref| {
+            self.interpret_block(element_ref, element.statements, Some(ctx), url.clone())
+        }))
+        .await?;
 
         Ok(
             ExecutionMode::hinted_from_iter(
@@ -323,7 +329,13 @@ pub async fn interpret_string_harness(
     let html = scraper::Html::parse_document(html);
     let interpreter = Interpreter::new(Box::leak(Box::new(ast)));
     interpreter
-        .interpret_block(html.root_element(), head, None)
+        // TODO: url hack
+        .interpret_block(
+            html.root_element(),
+            head,
+            None,
+            "file:///tmp/inmemory.html".parse().expect("URL parse"),
+        )
         .await
 }
 
@@ -345,7 +357,18 @@ mod tests {
         let html = scraper::Html::parse_document(&input);
 
         let result = super::Interpreter::new(&ast)
-            .interpret_block(html.root_element(), head, None)
+            .interpret_block(
+                html.root_element(),
+                head,
+                None,
+                format!(
+                    "file://{}/examples/inputs/{}",
+                    std::env::current_dir().expect("get current dir").display(),
+                    filename,
+                )
+                .parse()
+                .expect("parse URL failed"),
+            )
             .await?;
         let result = serde_json::to_value(result.0)?;
         assert_eq!(output, result);
@@ -430,5 +453,6 @@ mod tests {
         abc,
         attr,
         qualifiers,
+        relative,
     }
 }

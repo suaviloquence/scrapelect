@@ -1,0 +1,7 @@
+href: a {
+    href: $element | attrs() | take(key: "href");
+} | take(key: "href");
+
+relative: <$href> #success {
+    x: $text;
+} | take(key: "x");
