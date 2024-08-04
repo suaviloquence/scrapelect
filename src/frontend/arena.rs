@@ -28,14 +28,20 @@ impl<T> Default for Arena<T> {
     }
 }
 
+/// Hack to get a constant NonZeroUsize(1).  Uses out-of-bounds
+/// array access to simulate panicking in a const declaration.
+const ONE: NonZeroUsize = match NonZeroUsize::new(1) {
+    Some(x) => x,
+    None => [][0],
+};
+
 impl<T> Arena<T> {
     #[inline]
     #[must_use]
     pub const fn new() -> Self {
         Self(ArenaInner {
             inner: Vec::new(),
-            // safety: 1 is nonzero
-            next_ref: unsafe { NonZeroUsize::new_unchecked(1) },
+            next_ref: ONE,
         })
     }
 

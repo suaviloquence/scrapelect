@@ -1,4 +1,5 @@
 #![feature(never_type)]
+#![forbid(unsafe_code)]
 use std::{env, sync::Arc};
 
 use anyhow::Context;
