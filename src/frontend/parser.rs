@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{borrow::Cow, ops::Not};
+use std::borrow::Cow;
 
 use super::{
     arena::Arena,
@@ -339,27 +339,53 @@ impl<'a> Parser<'a> {
     }
 }
 
-fn parse_string_literal(s: &str) -> Cow<'_, str> {
+pub(self) fn parse_string_literal(s: &str) -> Cow<'_, str> {
     debug_assert!(s.len() >= 2 && &s[0..1] == "\"" && &s[s.len() - 1..] == "\"");
-    let mut prune = vec![];
+    let mut replace = vec![];
     let s = &s[1..s.len() - 1];
 
     let mut escape_next = false;
     for (i, s) in s.char_indices() {
         if escape_next {
             escape_next = false;
+            let escaped = match s {
+                'n' => '\n',
+                '\\' => '\\',
+                '"' => '"',
+                other => {
+                    // TODO
+                    eprintln!("Unknown escape character {other:?}");
+                    other
+                }
+            };
+
+            replace.push((i, Some(escaped)));
         } else if s == '\\' {
             escape_next = true;
-            prune.push(i);
+            replace.push((i, None));
         }
     }
 
-    if prune.is_empty() {
+    if replace.is_empty() {
         Cow::Borrowed(s)
     } else {
+        let mut replace = replace.into_iter().peekable();
         Cow::Owned(
             s.char_indices()
-                .filter_map(|(i, x)| prune.contains(&i).not().then_some(x))
+                .filter_map(|(i, x)| {
+                    replace
+                        .peek()
+                        .copied()
+                        .and_then(|(j, v)| {
+                            if i == j {
+                                let _ = replace.next();
+                                Some(v)
+                            } else {
+                                None
+                            }
+                        })
+                        .unwrap_or(Some(x))
+                })
                 .collect(),
         )
     }
@@ -369,7 +395,7 @@ fn parse_string_literal(s: &str) -> Cow<'_, str> {
 mod tests {
     use std::borrow::Cow;
 
-    use super::Parser;
+    use super::{parse_string_literal, Parser};
     use crate::frontend::ast::*;
 
     fn fmt_selector<'a>(head: &Selector<'a>, list: &[&SelectorList<'a>]) -> String {
@@ -465,6 +491,17 @@ mod tests {
         assert_eq!(
             fmt_selector(&element.selector_head, &arena.flatten(element.selectors)),
             "h2#x > .cat"
+        );
+    }
+
+    #[test]
+    fn test_escape_strings() {
+        assert_eq!(parse_string_literal(r#""""#), "");
+        assert_eq!(parse_string_literal(r#""abcdef""#), "abcdef");
+        assert_eq!(parse_string_literal(r#""hello! \n""#), "hello! \n");
+        assert_eq!(
+            parse_string_literal(r#""my \" crazy \\ lifestyle \\\"""#),
+            r#"my " crazy \ lifestyle \""#
         );
     }
 }
