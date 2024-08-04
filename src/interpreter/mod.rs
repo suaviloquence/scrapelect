@@ -346,9 +346,6 @@ mod tests {
     async fn integration_test(filename: &str) -> anyhow::Result<()> {
         let input = std::fs::read_to_string(format!("examples/inputs/{filename}.html"))?;
         let script = std::fs::read_to_string(format!("examples/scrps/{filename}.scrp"))?;
-        let output: serde_json::Value = serde_json::from_reader(std::fs::File::open(format!(
-            "examples/outputs/{filename}.json"
-        ))?)?;
 
         let (ast, head) = crate::frontend::Parser::new(&script)
             .parse()
@@ -369,9 +366,15 @@ mod tests {
                 .parse()
                 .expect("parse URL failed"),
             )
-            .await?;
-        let result = serde_json::to_value(result.0)?;
-        assert_eq!(output, result);
+            .await?.0;
+
+        let mut settings = insta::Settings::clone_current();
+        settings.set_snapshot_path("../../examples/outputs");
+        settings.set_prepend_module_to_snapshot(false);
+
+        settings.bind(|| {
+            insta::assert_json_snapshot!(filename, result);
+        });
 
         Ok(())
     }
@@ -454,5 +457,6 @@ mod tests {
         attr,
         qualifiers,
         relative,
+        recurser,
     }
 }

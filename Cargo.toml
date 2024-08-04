@@ -21,3 +21,13 @@ url = "2.5"
 
 [workspace]
 members = [".", "filter-proc-macro"]
+
+[dev-dependencies]
+insta = { version = "1.39.0", features = ["json"] }
+
+# compile insta and similar in release mode to improve testing times
+[profile.dev.package.insta]
+opt-level = 3
+
+[profile.dev.package.similar]
+opt-level = 3

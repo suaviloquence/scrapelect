@@ -1,7 +1,11 @@
 [package]
-name = "filter-proc-macro"
+name = "scrapelect-filter-proc-macro"
 version = "0.2.0"
 edition = "2021"
+authors = ["Max Carr <m@mcarr.one>"]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/suaviloquence/scrapelect"
+description = "proc-macros for making scrapelect Filters"
 
 [lib]
 proc-macro = true

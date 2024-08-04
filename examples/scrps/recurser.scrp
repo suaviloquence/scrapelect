@@ -1,0 +1,7 @@
+link: a {
+    href: $element | attrs() | take(key: "href");
+} | take(key: "href");
+
+new_page: <$link> h1 {
+    content: $text;
+};

@@ -1,0 +1,10 @@
+---
+source: src/interpreter/mod.rs
+expression: result
+---
+{
+  "link": "https://example.com",
+  "new_page": {
+    "content": "Example Domain"
+  }
+}
