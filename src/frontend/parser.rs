@@ -339,7 +339,7 @@ impl<'a> Parser<'a> {
     }
 }
 
-pub(self) fn parse_string_literal(s: &str) -> Cow<'_, str> {
+fn parse_string_literal(s: &str) -> Cow<'_, str> {
     debug_assert!(s.len() >= 2 && &s[0..1] == "\"" && &s[s.len() - 1..] == "\"");
     let mut replace = vec![];
     let s = &s[1..s.len() - 1];
