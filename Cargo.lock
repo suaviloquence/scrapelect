@@ -223,14 +223,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9fc0510504f03c51ada170672ac806f1f105a88aa97a5281117e1ddc3368e51a"
 
 [[package]]
-name = "filter-proc-macro"
-version = "0.1.0"
-dependencies = [
- "quote",
- "syn 2.0.64",
-]
-
-[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1153,15 +1145,24 @@ name = "scrapelect"
 version = "0.2.0"
 dependencies = [
  "anyhow",
- "filter-proc-macro",
  "futures",
  "regex",
  "reqwest",
+ "scrapelect-filter-proc-macro",
  "scraper",
  "serde",
  "serde_json",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "scrapelect-filter-proc-macro"
+version = "0.2.0"
+dependencies = [
+ "insta",
+ "quote",
+ "syn 2.0.64",
 ]
 
 [[package]]

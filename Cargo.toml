@@ -2,6 +2,10 @@
 name = "scrapelect"
 version = "0.2.0"
 edition = "2021"
+authors = ["Max Carr <m@mcarr.one>"]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/suaviloquence/scrapelect"
+description = "Interpreter for scrapelect, a CSS-inspired web scraping DSL"
 
 [dependencies]
 anyhow = "1.0"
@@ -9,7 +13,7 @@ regex = "1.10"
 reqwest = "0.12.5"
 scraper = "0.19"
 tokio = { version = "1.38.0", features = ["full"] }
-filter-proc-macro = { path = "./filter-proc-macro", version = "0.2.0" }
+scrapelect-filter-proc-macro = { path = "./filter-proc-macro", version = "0.2.0" }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive", "rc"] }
 futures = "0.3"

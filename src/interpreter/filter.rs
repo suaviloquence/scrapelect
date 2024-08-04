@@ -12,7 +12,7 @@ use super::{
     ElementContext, Value,
 };
 
-pub use filter_proc_macro::{filter_fn, Args};
+pub use scrapelect_filter_proc_macro::{filter_fn, Args};
 
 type Structure<'doc> = BTreeMap<Arc<str>, PValue<'doc>>;
 
