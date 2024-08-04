@@ -206,7 +206,10 @@ impl<'a> Scanner<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Lexeme, Scanner, Token, EOF};
+    use super::{
+        statics::{REGEX_LIST, REGEX_SET},
+        Lexeme, Scanner, Token, EOF,
+    };
 
     #[test]
     fn test_tokens() {
@@ -307,5 +310,11 @@ mod tests {
         sc.peek_non_whitespace();
         assert_eq!(sc.eat_token().1, lx!(BraceOpen, "{"));
         assert_eq!(sc.eat_token().1, lx!(BraceClose, "}"));
+    }
+
+    #[test]
+    fn all_regex_is_valid() {
+        let _ = &*REGEX_SET;
+        let _ = &*REGEX_LIST;
     }
 }
