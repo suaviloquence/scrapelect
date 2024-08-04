@@ -1,4 +1,4 @@
-use std::{future::Future, iter, option, vec};
+use std::{iter, option, vec};
 
 use crate::frontend::ast::Qualifier;
 
@@ -52,23 +52,6 @@ impl<T> IntoIterator for ExecutionMode<T> {
 }
 
 impl<T> ExecutionMode<T> {
-    pub fn map<U, F: FnMut(T) -> U>(self, mut f: F) -> ExecutionMode<U> {
-        match self {
-            One(x) => One(f(x)),
-            Optional(Some(x)) => Optional(Some(f(x))),
-            Optional(None) => Optional(None),
-            Collection(l) => Collection(l.into_iter().map(f).collect()),
-        }
-    }
-
-    #[inline]
-    pub async fn async_map<U, Fut: Future<Output = U>, Fn: FnMut(T) -> Fut>(
-        self,
-        f: Fn,
-    ) -> ExecutionMode<U> {
-        self.map(f).transpose_fut().await
-    }
-
     pub fn hinted_from_iter<I: Iterator<Item = T>>(
         ops: Qualifier,
         mut iter: I,
@@ -88,28 +71,6 @@ impl ExecutionMode<Value> {
             One(x) | Optional(Some(x)) => x,
             Optional(None) => Value::Null,
             Collection(l) => Value::List(l),
-        }
-    }
-}
-
-impl<T, E> ExecutionMode<Result<T, E>> {
-    pub fn transpose_res(self) -> Result<ExecutionMode<T>, E> {
-        Ok(match self {
-            One(x) => One(x?),
-            Optional(Some(x)) => Optional(Some(x?)),
-            Optional(None) => Optional(None),
-            Collection(l) => Collection(l.into_iter().collect::<Result<_, E>>()?),
-        })
-    }
-}
-
-impl<T, F: Future<Output = T>> ExecutionMode<F> {
-    pub async fn transpose_fut(self) -> ExecutionMode<T> {
-        match self {
-            One(f) => One(f.await),
-            Optional(Some(f)) => Optional(Some(f.await)),
-            Optional(None) => Optional(None),
-            Collection(l) => Collection(futures::future::join_all(l).await),
         }
     }
 }
