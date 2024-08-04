@@ -32,6 +32,7 @@ impl<T> Default for Arena<T> {
 /// array access to simulate panicking in a const declaration.
 const ONE: NonZeroUsize = match NonZeroUsize::new(1) {
     Some(x) => x,
+    #[allow(clippy::out_of_bounds_indexing)]
     None => [][0],
 };
 
