@@ -366,7 +366,8 @@ mod tests {
                 .parse()
                 .expect("parse URL failed"),
             )
-            .await?.0;
+            .await?
+            .0;
 
         let mut settings = insta::Settings::clone_current();
         settings.set_snapshot_path("../../examples/outputs");
