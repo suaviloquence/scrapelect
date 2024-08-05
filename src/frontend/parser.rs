@@ -4,8 +4,9 @@ use std::borrow::Cow;
 use super::{
     arena::Arena,
     ast::{
-        ArgList, Ast, AstRef, Element, FilterList, Inline, Leaf, Qualifier, RValue, Selector,
-        SelectorCombinator, SelectorList, Statement, StatementList,
+        ArgList, Ast, AstRef, Element, Filter, FilterCall, FilterList, FilterSelect, Inline, Leaf,
+        Qualifier, RValue, Selector, SelectorCombinator, SelectorList, Statement, StatementList,
+        Value,
     },
     scanner::{Lexeme, Scanner, Span, Token},
 };
@@ -191,6 +192,28 @@ impl<'a> Parser<'a> {
         Ok(Inline { value, filters })
     }
 
+    fn parse_value(&mut self) -> Result<Value<'a>> {
+        let (span, lx) = self.scanner.peek_non_whitespace();
+
+        match lx.token {
+            Token::Less => self.parse_inline().map(Value::Inline),
+            Token::Dollar | Token::Int | Token::Float | Token::String => {
+                self.parse_leaf().map(Value::Leaf)
+            }
+            _ => Err(ParseError::unexpected(
+                vec![
+                    Token::Less,
+                    Token::Dollar,
+                    Token::Int,
+                    Token::Float,
+                    Token::String,
+                ],
+                lx,
+                span,
+            )),
+        }
+    }
+
     fn parse_selector_list(&mut self) -> Result<Option<AstRef<'a, SelectorList<'a>>>> {
         let mut item = self.scanner.peek_non_comment();
         if item.1.token == Token::Whitespace {
@@ -280,18 +303,42 @@ impl<'a> Parser<'a> {
         let (_, lx) = self.scanner.peek_non_whitespace();
         if lx.token == Token::Pipe {
             self.scanner.eat_token();
-            let id = self.try_eat(Token::Id)?.value;
-            self.try_eat(Token::ParenOpen)?;
-            let args = self.parse_arg_list()?;
-            self.try_eat(Token::ParenClose)?;
+            let filter = self.parse_filter()?;
             let next = self.parse_filter_list()?;
             let qualifier = self.parse_qualifier()?;
             let r = self
                 .arena
-                .insert_variant(FilterList::new(id, args, next, qualifier));
+                .insert_variant(FilterList::new(filter, qualifier, next));
             Ok(Some(r))
         } else {
             Ok(None)
+        }
+    }
+
+    fn parse_filter(&mut self) -> Result<Filter<'a>> {
+        let (span, lx) = self.scanner.peek_non_whitespace();
+        self.scanner.eat_token();
+
+        match lx.token {
+            Token::Id => {
+                let id = lx.value;
+                self.try_eat(Token::ParenOpen)?;
+                let args = self.parse_arg_list()?;
+                self.try_eat(Token::ParenClose)?;
+                Ok(Filter::Call(FilterCall::new(id, args)))
+            }
+            Token::BracketOpen => {
+                let name = self.try_eat(Token::Id)?.value;
+                self.try_eat(Token::Colon)?;
+                let value = self.parse_value()?;
+                self.try_eat(Token::BracketClose)?;
+                Ok(Filter::Select(FilterSelect::new(name, value)))
+            }
+            _ => Err(ParseError::unexpected(
+                vec![Token::Id, Token::BracketOpen],
+                lx,
+                span,
+            )),
         }
     }
 
@@ -461,12 +508,23 @@ mod tests {
         assert!(
             matches!(
                 &filters[..],
-                [FilterList { id: "cat", .. }, FilterList { id: "meow", .. }]
+                [
+                    FilterList {
+                        filter: Filter::Call(FilterCall { id: "cat", .. }),
+                        ..
+                    },
+                    FilterList {
+                        filter: Filter::Call(FilterCall { id: "meow", .. }),
+                        ..
+                    }
+                ]
             ),
             "found {filters:?}"
         );
 
-        let filter = filters[0];
+        let Filter::Call(filter) = &filters[0].filter else {
+            unreachable!("Validated as Filter::Call above");
+        };
         let args = arena.flatten(filter.args);
         assert!(
             matches!(

@@ -7,7 +7,10 @@ use reqwest::Url;
 use value::{EValue, ListIter};
 
 use crate::frontend::{
-    ast::{AstRef, Element, FilterList, Inline, Leaf, Qualifier, RValue, Statement, StatementList},
+    ast::{
+        self, AstRef, Element, FilterList, Inline, Leaf, Qualifier, RValue, Statement,
+        StatementList,
+    },
     AstArena,
 };
 
@@ -243,23 +246,28 @@ impl<'ast> Interpreter<'ast> {
         ctx: &mut ElementContext<'ast, 'ctx>,
     ) -> Result<EValue<'ctx>> {
         filters
-            .try_fold(value.into(), |value, filter| {
-                let args = self
-                    .ast
-                    .flatten(filter.args)
-                    .into_iter()
-                    .map(|arg| Ok((arg.id, ctx.leaf_to_value(&arg.value)?)))
-                    .collect::<Result<BTreeMap<_, _>>>()?;
+            .try_fold(value.into(), |value, filter| match &filter.filter {
+                ast::Filter::Call(call) => {
+                    let args = self
+                        .ast
+                        .flatten(call.args)
+                        .into_iter()
+                        .map(|arg| Ok((arg.id, ctx.leaf_to_value(&arg.value)?)))
+                        .collect::<Result<BTreeMap<_, _>>>()?;
 
-                match filter.qualifier {
-                    Qualifier::One => filter::dispatch_filter(filter.id, value, args, ctx),
-                    Qualifier::Optional if matches!(value, Value::Null) => Ok(Value::Null),
-                    Qualifier::Optional => filter::dispatch_filter(filter.id, value, args, ctx),
-                    Qualifier::Collection => value
-                        .try_unwrap::<ListIter>()?
-                        .map(|value| filter::dispatch_filter(filter.id, value, args.clone(), ctx))
-                        .collect::<Result<Vec<_>>>()
-                        .map(Value::List),
+                    match filter.qualifier {
+                        Qualifier::One => filter::dispatch_filter(call.id, value, args, ctx),
+                        Qualifier::Optional if matches!(value, Value::Null) => Ok(Value::Null),
+                        Qualifier::Optional => filter::dispatch_filter(call.id, value, args, ctx),
+                        Qualifier::Collection => value
+                            .try_unwrap::<ListIter>()?
+                            .map(|value| filter::dispatch_filter(call.id, value, args.clone(), ctx))
+                            .collect::<Result<Vec<_>>>()
+                            .map(Value::List),
+                    }
+                }
+                ast::Filter::Select(_select) => {
+                    todo!()
                 }
             })
             .map(EValue::from)

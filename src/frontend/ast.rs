@@ -209,6 +209,12 @@ pub struct Inline<'a> {
 }
 
 #[derive(Debug, Clone)]
+pub enum Value<'a> {
+    Leaf(Leaf<'a>),
+    Inline(Inline<'a>),
+}
+
+#[derive(Debug, Clone)]
 pub struct Statement<'a> {
     pub id: &'a str,
     pub value: RValue<'a>,
@@ -222,6 +228,12 @@ pub struct Element<'a> {
     pub selectors: Option<AstRef<'a, SelectorList<'a>>>,
     pub qualifier: Qualifier,
     pub statements: Option<AstRef<'a, StatementList<'a>>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Filter<'a> {
+    Call(FilterCall<'a>),
+    Select(FilterSelect<'a>),
 }
 
 ast_enum! {
@@ -238,12 +250,19 @@ pub enum Ast<'a> {
         value: Leaf<'a>,
         next: Option<AstRef<'a, ArgList<'a>>>,
     },
-    @flatten[self, .next]
-    FilterList {
+    FilterCall {
         id: &'a str,
         args: Option<AstRef<'a, ArgList<'a>>>,
-        next: Option<AstRef<'a, FilterList<'a>>>,
+    },
+    FilterSelect {
+        name: &'a str,
+        value: Value<'a>,
+    },
+    @flatten[self, .next]
+    FilterList {
+        filter: Filter<'a>,
         qualifier: Qualifier,
+        next: Option<AstRef<'a, FilterList<'a>>>,
     },
     @flatten[self, .next]
     StatementList {

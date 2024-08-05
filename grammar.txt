@@ -37,8 +37,14 @@ qualifier -> `?`
           |  `*`
           |  ""
 
-filter_list -> `|` ID `(` arg_list `)` qualifier filter_list
+filter_list -> `|` filter qualifier filter_list
             |  ""
+
+value -> leaf
+      |  inline
+
+filter -> ID `(` arg_list `)`
+       |  `[` ID `:` value `]`
 
 arg_list ->	ID `:` leaf arg_list2
          |  ""

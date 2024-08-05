@@ -44,6 +44,12 @@ pub enum Token {
     Semi,
     /// a less than sign `<` to indicate the start of an inline expansion
     Less,
+    /// an opening bracket `[` to indicate the start of a select filter
+    /// or CSS attribute selector
+    BracketOpen,
+    /// a closing bracket `]` to indicate the end of a select filter
+    /// or CSS attribute selector
+    BracketClose,
     /// A single-line comment that begins with two forward slashes '//' and
     /// spans the rest of the line
     Comment,
@@ -103,6 +109,8 @@ mod statics {
             Colon <- ":"
             Semi <- ";"
             Less <- "<"
+            BracketOpen <- r"\["
+            BracketClose <- r"\]"
             Comment <- r"//[^\n]*"
         };
     }
@@ -271,6 +279,8 @@ mod tests {
             Plus => "+"
             Question => "?"
             Pipe => "|"
+            BracketOpen => "["
+            BracketClose => "]"
         }
     }
 
