@@ -157,6 +157,21 @@ fn values<'doc>(value: Structure<'doc>) -> anyhow::Result<PValue<'doc>> {
     ))))
 }
 
+#[filter_fn]
+fn and<'doc>(value: bool, with: bool) -> anyhow::Result<PValue<'doc>> {
+    Ok(Value::Bool(value && with))
+}
+
+#[filter_fn]
+fn or<'doc>(value: bool, with: bool) -> anyhow::Result<PValue<'doc>> {
+    Ok(Value::Bool(value || with))
+}
+
+#[filter_fn]
+fn not<'doc>(value: bool) -> anyhow::Result<PValue<'doc>> {
+    Ok(Value::Bool(!value))
+}
+
 macro_rules! build_map {
     ($(
         $id: ident,
@@ -181,6 +196,9 @@ static BUILTIN_FILTERS: LazyLock<BTreeMap<&'static str, Box<dyn FilterDyn + Send
             nth,
             keys,
             values,
+            and,
+            or,
+            not,
         }
         .into_iter()
         .collect()
