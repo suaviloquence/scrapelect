@@ -43,7 +43,7 @@ filter_list -> `|` ID `(` arg_list `)` qualifier filter_list
 arg_list ->	ID `:` leaf arg_list2
          |  ""
 # allow optional trailing comma
-arg_list_2 -> `,` arg_list
+arg_list2 -> `,` arg_list
            |  ""
 
 leaf        ->  variable
