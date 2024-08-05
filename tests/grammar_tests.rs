@@ -5,6 +5,7 @@ use anyhow::Context;
 #[derive(Debug)]
 struct Grammar<'a> {
     nonterminals: BTreeSet<Nonterminal<'a>>,
+    #[allow(dead_code)]
     terminals: BTreeSet<Terminal<'a>>,
     rules: Vec<Rule<'a>>,
 }
