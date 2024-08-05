@@ -192,7 +192,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_selector_list(&mut self) -> Result<Option<AstRef<'a, SelectorList<'a>>>> {
-        let mut item = self.scanner.peek_token();
+        let mut item = self.scanner.peek_non_comment();
         if item.1.token == Token::Whitespace {
             self.scanner.eat_token();
             let next = self.scanner.peek_non_whitespace();

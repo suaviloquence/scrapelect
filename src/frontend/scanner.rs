@@ -44,6 +44,9 @@ pub enum Token {
     Semi,
     /// a less than sign `<` to indicate the start of an inline expansion
     Less,
+    /// A single-line comment that begins with two forward slashes '//' and
+    /// spans the rest of the line
+    Comment,
     /// special token to indicate the end of the file
     Eof,
     /// special token to indicate unknown token
@@ -100,6 +103,7 @@ mod statics {
             Colon <- ":"
             Semi <- ";"
             Less <- "<"
+            Comment <- r"//[^\n]*"
         };
     }
 }
@@ -189,6 +193,24 @@ impl<'a> Scanner<'a> {
         (span, lexeme)
     }
 
+    /// Looks ahead for the next non-`Comment` [`Lexeme`]
+    /// and returns it without [eating](Self::eat_token) it.
+    pub fn peek_non_comment(&mut self) -> (Span, Lexeme<'a>) {
+        while let (
+            _,
+            Lexeme {
+                token: Token::Comment,
+                ..
+            },
+        ) = self.peek_token()
+        {
+            self.eat_token();
+        }
+        self.peek_token()
+    }
+
+    /// Looks ahead for the first non-whitespace, non-comment [`Lexeme`]
+    /// and returns it without [eating](Self::eat_token) it.
     pub fn peek_non_whitespace(&mut self) -> (Span, Lexeme<'a>) {
         while let (
             _,
@@ -196,7 +218,7 @@ impl<'a> Scanner<'a> {
                 token: Token::Whitespace,
                 ..
             },
-        ) = self.peek_token()
+        ) = self.peek_non_comment()
         {
             self.eat_token();
         }
@@ -310,6 +332,31 @@ mod tests {
         sc.peek_non_whitespace();
         assert_eq!(sc.eat_token().1, lx!(BraceOpen, "{"));
         assert_eq!(sc.eat_token().1, lx!(BraceClose, "}"));
+    }
+
+    #[test]
+    fn test_comments() {
+        let mut sc = Scanner::new(
+            r"// Hello! This is a comment!
+            b: a // and another! {
+            {
+            // } don't be fooled!
+            }",
+        );
+
+        assert_eq!(sc.peek_non_whitespace().1, lx!(Id, "b"));
+        sc.eat_token();
+        assert_eq!(sc.peek_non_whitespace().1, lx!(Colon, ":"));
+        sc.eat_token();
+        assert_eq!(sc.peek_non_whitespace().1, lx!(Id, "a"));
+        sc.eat_token();
+        assert_eq!(sc.peek_non_whitespace().1, lx!(BraceOpen, "{"));
+        sc.eat_token();
+        assert_eq!(sc.eat_token().1.token, Token::Whitespace);
+        assert_eq!(sc.eat_token().1, lx!(Comment, "// } don't be fooled!"));
+        assert_eq!(sc.peek_non_whitespace().1, lx!(BraceClose, "}"));
+        sc.eat_token();
+        assert_eq!(sc.eat_token().1.token, Token::Eof);
     }
 
     #[test]
