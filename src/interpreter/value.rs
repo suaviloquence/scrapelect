@@ -269,6 +269,15 @@ impl<X, T: TryFromValue<X>> TryFromValue<X> for Option<T> {
             other => T::try_from_value(other).map(Some),
         }
     }
+
+    fn try_from_option(value: Option<Value<X>>) -> Result<Self> {
+        // TODO: should we distinguish Some(Null) from None here?
+        match value {
+            // or T::try_from_data() to ignore None
+            Some(v) => Self::try_from_value(v),
+            None => Ok(None),
+        }
+    }
 }
 
 impl<'a> TryFromValue<ElementCtx<'a>> for scraper::ElementRef<'a> {
