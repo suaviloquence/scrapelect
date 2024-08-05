@@ -467,5 +467,6 @@ mod tests {
         qualifiers,
         relative,
         recurser,
+        filter_select,
     }
 }

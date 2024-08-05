@@ -1,0 +1,33 @@
+---
+source: src/interpreter/mod.rs
+expression: result
+---
+{
+  "just-just": [
+    false,
+    false,
+    false,
+    false,
+    true
+  ],
+  "list": [
+    "my",
+    "very",
+    "old",
+    "mother",
+    "just"
+  ],
+  "m-words": [
+    "my",
+    "mother",
+    "mom",
+    "me"
+  ],
+  "ms": [
+    true,
+    false,
+    false,
+    true,
+    false
+  ]
+}

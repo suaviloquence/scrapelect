@@ -172,6 +172,35 @@ fn not<'doc>(value: bool) -> anyhow::Result<PValue<'doc>> {
     Ok(Value::Bool(!value))
 }
 
+#[filter_fn]
+fn split<'doc>(value: Arc<str>, on: Option<Arc<str>>) -> anyhow::Result<PValue<'doc>> {
+    if let Some(delim) = on {
+        Ok(Value::List(
+            value
+                .split(&*delim)
+                .map(|x| Value::String(Arc::from(x)))
+                .collect(),
+        ))
+    } else {
+        Ok(Value::List(
+            value
+                .split_whitespace()
+                .map(|x| Value::String(Arc::from(x)))
+                .collect(),
+        ))
+    }
+}
+
+#[filter_fn]
+fn eq<'doc>(value: PValue<'doc>, to: EValue<'doc>) -> anyhow::Result<PValue<'doc>> {
+    Ok(Value::Bool(EValue::from(value) == to))
+}
+
+#[filter_fn]
+fn is_in<'doc>(value: PValue<'doc>, list: Vec<EValue<'doc>>) -> anyhow::Result<PValue<'doc>> {
+    Ok(Value::Bool(list.contains(&value.into())))
+}
+
 macro_rules! build_map {
     ($(
         $id: ident,
@@ -199,6 +228,9 @@ static BUILTIN_FILTERS: LazyLock<BTreeMap<&'static str, Box<dyn FilterDyn + Send
             and,
             or,
             not,
+            split,
+            eq,
+            is_in,
         }
         .into_iter()
         .collect()

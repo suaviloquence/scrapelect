@@ -15,7 +15,7 @@ pub trait TryFromValue<T>: Sized {
     }
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, PartialEq)]
 #[serde(untagged)]
 pub enum Value<T = Data> {
     #[serde(serialize_with = "serialize_null_as_option")]
@@ -113,7 +113,7 @@ impl<T: TryFromData, X> TryFromValue<X> for T {
 }
 
 #[allow(unreachable_code)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Data(!);
 
 impl Serialize for Data {
@@ -134,7 +134,7 @@ impl fmt::Display for Data {
 pub type EValue<'a> = Value<ElementCtx<'a>>;
 
 #[non_exhaustive]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ElementCtx<'a> {
     Element(scraper::ElementRef<'a>),
 }

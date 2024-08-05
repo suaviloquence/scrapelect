@@ -1,0 +1,5 @@
+list: "my very old mother just" | split();
+m-words: "my mother mom me" | split();
+
+ms: $list | is_in(list: $m-words)*;
+just-just: $list | eq(to: "just")*;
