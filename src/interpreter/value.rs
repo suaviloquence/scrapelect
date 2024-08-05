@@ -22,6 +22,7 @@ pub enum Value<T = Data> {
     Null,
     Float(f64),
     Int(i64),
+    Bool(bool),
     String(Arc<str>),
     List(Vec<Value<T>>),
     Structure(Structure<T>),
@@ -68,6 +69,7 @@ impl<X> Value<X> {
             Null => Null,
             Float(f) => Float(f),
             Int(i) => Int(i),
+            Bool(b) => Bool(b),
             String(s) => String(s),
             List(l) => List(l.into_iter().map(Self::from_data).collect()),
             Structure(s) => Structure(
@@ -86,6 +88,7 @@ impl<X> Value<X> {
             Null => Some(Null),
             Float(f) => Some(Float(f)),
             Int(i) => Some(Int(i)),
+            Bool(b) => Some(Bool(b)),
             String(s) => Some(String(s)),
             List(l) => Some(List(l.into_iter().filter_map(Self::into_data).collect())),
             Structure(s) => Some(Structure(
@@ -163,6 +166,7 @@ impl<'a> From<PValue<'a>> for EValue<'a> {
             Null => Null,
             Float(f) => Float(f),
             Int(i) => Int(i),
+            Bool(b) => Bool(b),
             String(s) => String(s),
             List(l) => List(l.into_iter().map(Self::from).collect()),
             Structure(s) => Structure(s.into_iter().map(|(k, v)| (k, v.into())).collect()),
@@ -178,6 +182,7 @@ impl<'a> From<EValue<'a>> for PValue<'a> {
             Null => Null,
             Float(f) => Float(f),
             Int(i) => Int(i),
+            Bool(b) => Bool(b),
             String(s) => String(s),
             List(l) => List(l.into_iter().map(Self::from).collect()),
             Structure(s) => Structure(s.into_iter().map(|(k, v)| (k, v.into())).collect()),
@@ -197,6 +202,7 @@ impl<T: fmt::Display> fmt::Display for Value<T> {
             Self::Null => write!(f, "null"),
             Self::Int(n) => write!(f, "{n}"),
             Self::Float(x) => write!(f, "{x}"),
+            Self::Bool(b) => write!(f, "{b}"),
             Self::String(s) => write!(f, r#""{s}""#),
             Self::List(ls) => {
                 write!(f, "[")?;
