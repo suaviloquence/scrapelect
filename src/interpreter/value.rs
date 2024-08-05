@@ -58,6 +58,7 @@ macro_rules! generate_impls {
 generate_impls! {
     Float(f64),
     Int(i64),
+    Bool(bool),
     String(Arc<str>),
 }
 
