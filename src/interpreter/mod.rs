@@ -4,7 +4,7 @@ use anyhow::Context;
 use execution_mode::ExecutionMode;
 use reqwest::Url;
 
-use value::{EValue, ListIter};
+use value::{EValue, ListIter, PValue};
 
 use crate::frontend::{
     ast::{
@@ -254,21 +254,36 @@ impl<'ast> Interpreter<'ast> {
                         .into_iter()
                         .map(|arg| Ok((arg.id, ctx.leaf_to_value(&arg.value)?)))
                         .collect::<Result<BTreeMap<_, _>>>()?;
+                    qualify(filter.qualifier, value, |value| {
+                        filter::dispatch_filter(call.id, value, args.clone(), ctx)
+                    })
+                }
+                ast::Filter::Select(select) => qualify(filter.qualifier, value, |value| {
+                    let ls: ListIter = value.try_unwrap()?;
 
-                    match filter.qualifier {
-                        Qualifier::One => filter::dispatch_filter(call.id, value, args, ctx),
-                        Qualifier::Optional if matches!(value, Value::Null) => Ok(Value::Null),
-                        Qualifier::Optional => filter::dispatch_filter(call.id, value, args, ctx),
-                        Qualifier::Collection => value
-                            .try_unwrap::<ListIter>()?
-                            .map(|value| filter::dispatch_filter(call.id, value, args.clone(), ctx))
-                            .collect::<Result<Vec<_>>>()
-                            .map(Value::List),
-                    }
-                }
-                ast::Filter::Select(_select) => {
-                    todo!()
-                }
+                    let mut inner_scope = ElementContext {
+                        element: ctx.element,
+                        variables: Variables::default(),
+                        text: OnceCell::new(),
+                        parent: Some(ctx),
+                        url: ctx.url.clone(),
+                    };
+
+                    Ok(Value::List(
+                        ls.map(|value| {
+                            let value = EValue::from(value);
+                            inner_scope.set_var(select.name.into(), value.clone())?;
+
+                            let keep: bool = self
+                                .eval_inline(&select.value, &mut inner_scope)?
+                                .try_unwrap()?;
+
+                            Ok(keep.then(|| value.into()))
+                        })
+                        .filter_map(Result::transpose)
+                        .collect::<Result<_>>()?,
+                    ))
+                }),
             })
             .map(EValue::from)
     }
@@ -283,6 +298,26 @@ impl<'ast> Interpreter<'ast> {
             self.ast.flatten(inline.filters).into_iter(),
             ctx,
         )
+    }
+}
+
+fn qualify<'doc, F>(
+    qualifier: Qualifier,
+    value: PValue<'doc>,
+    mut action: F,
+) -> Result<PValue<'doc>>
+where
+    F: FnMut(PValue<'doc>) -> Result<PValue<'doc>>,
+{
+    match qualifier {
+        Qualifier::One => action(value),
+        Qualifier::Optional if matches!(value, Value::Null) => Ok(Value::Null),
+        Qualifier::Optional => action(value),
+        Qualifier::Collection => value
+            .try_unwrap::<ListIter>()?
+            .map(action)
+            .collect::<Result<Vec<_>>>()
+            .map(Value::List),
     }
 }
 

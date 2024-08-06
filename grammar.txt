@@ -40,11 +40,8 @@ qualifier -> `?`
 filter_list -> `|` filter qualifier filter_list
             |  ""
 
-value -> leaf
-      |  inline
-
 filter -> ID `(` arg_list `)`
-       |  `[` ID `:` value `]`
+       |  `[` ID `:` leaf filter_list `]`
 
 arg_list ->	ID `:` leaf arg_list2
          |  ""

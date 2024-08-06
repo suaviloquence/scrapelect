@@ -208,10 +208,13 @@ pub struct Inline<'a> {
     pub filters: Option<AstRef<'a, FilterList<'a>>>,
 }
 
-#[derive(Debug, Clone)]
-pub enum Value<'a> {
-    Leaf(Leaf<'a>),
-    Inline(Inline<'a>),
+impl<'a> From<Leaf<'a>> for Inline<'a> {
+    fn from(value: Leaf<'a>) -> Self {
+        Self {
+            value,
+            filters: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -256,7 +259,7 @@ pub enum Ast<'a> {
     },
     FilterSelect {
         name: &'a str,
-        value: Value<'a>,
+        value: Inline<'a>,
     },
     @flatten[self, .next]
     FilterList {

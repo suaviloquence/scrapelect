@@ -6,7 +6,6 @@ use super::{
     ast::{
         ArgList, Ast, AstRef, Element, Filter, FilterCall, FilterList, FilterSelect, Inline, Leaf,
         Qualifier, RValue, Selector, SelectorCombinator, SelectorList, Statement, StatementList,
-        Value,
     },
     scanner::{Lexeme, Scanner, Span, Token},
 };
@@ -192,28 +191,6 @@ impl<'a> Parser<'a> {
         Ok(Inline { value, filters })
     }
 
-    fn parse_value(&mut self) -> Result<Value<'a>> {
-        let (span, lx) = self.scanner.peek_non_whitespace();
-
-        match lx.token {
-            Token::Less => self.parse_inline().map(Value::Inline),
-            Token::Dollar | Token::Int | Token::Float | Token::String => {
-                self.parse_leaf().map(Value::Leaf)
-            }
-            _ => Err(ParseError::unexpected(
-                vec![
-                    Token::Less,
-                    Token::Dollar,
-                    Token::Int,
-                    Token::Float,
-                    Token::String,
-                ],
-                lx,
-                span,
-            )),
-        }
-    }
-
     fn parse_selector_list(&mut self) -> Result<Option<AstRef<'a, SelectorList<'a>>>> {
         let mut item = self.scanner.peek_non_comment();
         if item.1.token == Token::Whitespace {
@@ -330,9 +307,16 @@ impl<'a> Parser<'a> {
             Token::BracketOpen => {
                 let name = self.try_eat(Token::Id)?.value;
                 self.try_eat(Token::Colon)?;
-                let value = self.parse_value()?;
+                let leaf = self.parse_leaf()?;
+                let filters = self.parse_filter_list()?;
                 self.try_eat(Token::BracketClose)?;
-                Ok(Filter::Select(FilterSelect::new(name, value)))
+                Ok(Filter::Select(FilterSelect::new(
+                    name,
+                    Inline {
+                        value: leaf,
+                        filters,
+                    },
+                )))
             }
             _ => Err(ParseError::unexpected(
                 vec![Token::Id, Token::BracketOpen],

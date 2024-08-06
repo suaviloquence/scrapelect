@@ -4,11 +4,7 @@ expression: result
 ---
 {
   "just-just": [
-    false,
-    false,
-    false,
-    false,
-    true
+    "just"
   ],
   "list": [
     "my",
@@ -24,10 +20,7 @@ expression: result
     "me"
   ],
   "ms": [
-    true,
-    false,
-    false,
-    true,
-    false
+    "my",
+    "mother"
   ]
 }

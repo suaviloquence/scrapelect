@@ -201,6 +201,24 @@ fn is_in<'doc>(value: PValue<'doc>, list: Vec<EValue<'doc>>) -> anyhow::Result<P
     Ok(Value::Bool(list.contains(&value.into())))
 }
 
+#[filter_fn]
+fn truthy<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
+    let truthy = match value {
+        Value::Null => false,
+        Value::Float(f) => f != 0.,
+        Value::Int(i) => i != 0,
+        Value::Bool(b) => b,
+        Value::String(s) => !s.is_empty(),
+        Value::List(l) => !l.is_empty(),
+        Value::Structure(s) => !s.is_empty(),
+        Value::Extra(Pipeline::Element(_)) => true,
+        Value::Extra(Pipeline::ListIter(mut i)) => i.next().is_some(),
+        Value::Extra(Pipeline::StructIter(mut i)) => i.next().is_some(),
+    };
+
+    Ok(Value::Bool(truthy))
+}
+
 macro_rules! build_map {
     ($(
         $id: ident,
