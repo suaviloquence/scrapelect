@@ -25,6 +25,9 @@ members = [".", "filter-proc-macro"]
 [dev-dependencies]
 insta = { version = "1.39.0", features = ["json"] }
 
+[features]
+filter_doc = []
+
 # compile insta and similar in release mode to improve testing times
 [profile.dev.package.insta]
 opt-level = 3
