@@ -1,0 +1,6 @@
+[book]
+authors = ["Max Carr <m@mcarr.one>"]
+language = "en"
+multilingual = false
+src = "src"
+title = "The Scrapelect Book"
