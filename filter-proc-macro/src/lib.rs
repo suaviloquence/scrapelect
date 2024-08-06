@@ -150,10 +150,11 @@ pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
         .chain(ctx.clone().into_iter().map(|x| quote! {#x }));
 
     quote! {
-        #[cfg(feature = "filter_doc")]
+        #[doc(cfg(feature = "filter_doc"))]
+        #[cfg(any(doc, feature = "filter_doc"))]
         #inner
 
-        #[cfg(not(feature = "filter_doc"))]
+        #[cfg(not(any(doc, feature = "filter_doc")))]
         #vis fn #name() -> impl crate::interpreter::filter::Filter {
             #[derive(Debug, crate::interpreter::filter::Args)]
             pub struct Args<'doc> {

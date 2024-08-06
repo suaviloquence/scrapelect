@@ -28,62 +28,13 @@ use std::{
 
 use anyhow::Context as _;
 
-use crate::interpreter::value::ListIter;
-
-use super::{
-    value::{EValue, PValue, Pipeline, TryFromValue},
-    ElementContext, Value,
+use crate::interpreter::{
+    filter::{filter_fn, FilterDyn},
+    value::{EValue, ListIter, PValue, Pipeline, Value},
+    ElementContext,
 };
 
-pub use scrapelect_filter_proc_macro::{filter_fn, Args};
-
 type Structure<'doc> = BTreeMap<Arc<str>, PValue<'doc>>;
-
-pub trait Args<'doc>: Sized {
-    fn try_deserialize<'ast>(args: BTreeMap<&'ast str, EValue<'doc>>) -> anyhow::Result<Self>;
-}
-
-impl<'a> Args<'a> for () {
-    fn try_deserialize<'ast>(args: BTreeMap<&'ast str, EValue<'a>>) -> anyhow::Result<Self> {
-        if !args.is_empty() {
-            anyhow::bail!("Found unexpected arguments `{args:?}`");
-        }
-
-        Ok(())
-    }
-}
-
-pub trait Filter {
-    type Value<'doc>: TryFromValue<Pipeline<'doc>>;
-    type Args<'doc>: Args<'doc>;
-
-    fn apply<'doc>(
-        value: Self::Value<'doc>,
-        args: Self::Args<'doc>,
-        ctx: &mut ElementContext<'_, 'doc>,
-    ) -> anyhow::Result<PValue<'doc>>;
-}
-
-pub trait FilterDyn {
-    fn apply<'ast, 'doc>(
-        &self,
-        value: PValue<'doc>,
-        args: BTreeMap<&'ast str, EValue<'doc>>,
-        ctx: &mut ElementContext<'ast, 'doc>,
-    ) -> anyhow::Result<PValue<'doc>>;
-}
-
-impl<F: Filter> FilterDyn for F {
-    #[inline]
-    fn apply<'ast, 'doc>(
-        &self,
-        value: PValue<'doc>,
-        args: BTreeMap<&'ast str, EValue<'doc>>,
-        ctx: &mut ElementContext<'ast, 'doc>,
-    ) -> anyhow::Result<PValue<'doc>> {
-        F::apply(value.try_unwrap()?, F::Args::try_deserialize(args)?, ctx)
-    }
-}
 
 /// Signature: `value | id(): Value`
 ///
@@ -437,7 +388,7 @@ macro_rules! build_map {
 }
 
 #[cfg(not(feature = "filter_doc"))]
-static BUILTIN_FILTERS: LazyLock<BTreeMap<&'static str, Box<dyn FilterDyn + Send + Sync>>> =
+pub static FILTERS: LazyLock<BTreeMap<&'static str, Box<dyn FilterDyn + Send + Sync>>> =
     LazyLock::new(|| {
         build_map! {
             dbg,
@@ -460,16 +411,3 @@ static BUILTIN_FILTERS: LazyLock<BTreeMap<&'static str, Box<dyn FilterDyn + Send
         .into_iter()
         .collect()
     });
-
-#[cfg(not(feature = "filter_doc"))]
-pub fn dispatch_filter<'ast, 'doc>(
-    name: &str,
-    value: PValue<'doc>,
-    args: BTreeMap<&'ast str, EValue<'doc>>,
-    ctx: &mut ElementContext<'ast, 'doc>,
-) -> anyhow::Result<PValue<'doc>> {
-    match BUILTIN_FILTERS.get(name) {
-        Some(filter) => filter.apply(value, args, ctx),
-        None => anyhow::bail!("unrecognized filter `{name}`"),
-    }
-}

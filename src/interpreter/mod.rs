@@ -4,7 +4,7 @@ use anyhow::Context;
 use execution_mode::ExecutionMode;
 use reqwest::Url;
 
-use value::ListIter;
+use value::{EValue, ListIter, PValue};
 
 use crate::frontend::{
     ast::{
@@ -15,14 +15,11 @@ use crate::frontend::{
 };
 
 mod execution_mode;
-#[cfg(feature = "filter_doc")]
 pub mod filter;
-#[cfg(not(feature = "filter_doc"))]
-mod filter;
-mod value;
+pub mod value;
 
-pub use filter::{filter_fn, Args, Filter, FilterDyn};
-pub use value::{EValue, ElementCtx, PValue, Pipeline, TryFromValue, Value};
+pub use filter::{Filter, FilterDyn};
+pub use value::Value;
 
 pub type Error = anyhow::Error;
 pub type Result<T> = core::result::Result<T, Error>;
