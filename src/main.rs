@@ -3,11 +3,10 @@
 use std::{env, sync::Arc};
 
 use anyhow::Context;
-use frontend::Parser;
-use interpreter::{Interpreter, Value};
-
-pub mod frontend;
-pub mod interpreter;
+use scrapelect::{
+    frontend::Parser,
+    interpreter::{Interpreter, Value},
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
