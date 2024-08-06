@@ -93,7 +93,7 @@ impl<F: Filter> FilterDyn for F {
 ///
 /// - `"hi" | id()` returns `"hi"`
 #[filter_fn]
-fn id<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn id<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
     Ok(value)
 }
 
@@ -107,7 +107,7 @@ fn id<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
 /// - `"hi" | dbg()` returns `"hi"` and prints `dbg message: "hi"`
 /// - `"hi" | dbg(msg: "I say")` returns `"hi"` and prints `I say: "hi"`
 #[filter_fn]
-fn dbg<'doc>(value: PValue<'doc>, msg: Option<Arc<str>>) -> anyhow::Result<PValue<'doc>> {
+pub fn dbg<'doc>(value: PValue<'doc>, msg: Option<Arc<str>>) -> anyhow::Result<PValue<'doc>> {
     let value: EValue = value.into();
     eprintln!("{}: {}", value, msg.as_deref().unwrap_or("dbg message"));
 
@@ -127,7 +127,7 @@ fn dbg<'doc>(value: PValue<'doc>, msg: Option<Arc<str>>) -> anyhow::Result<PValu
 ///   - `$spacey = "   hi   "`
 ///   - `$stripped = "hi"`
 #[filter_fn]
-fn tee<'doc>(
+pub fn tee<'doc>(
     value: PValue<'doc>,
     into: Arc<str>,
     ctx: &mut ElementContext<'_, 'doc>,
@@ -146,7 +146,7 @@ fn tee<'doc>(
 /// - `"    helloooo   ooo   " | strip()` returns `"helloooo   ooo"`
 /// - `"    " | strip()` returns `""`
 #[filter_fn]
-fn strip<'doc>(value: Arc<str>) -> anyhow::Result<PValue<'doc>> {
+pub fn strip<'doc>(value: Arc<str>) -> anyhow::Result<PValue<'doc>> {
     Ok(Value::String(value.trim().into()))
 }
 
@@ -161,7 +161,7 @@ fn strip<'doc>(value: Arc<str>) -> anyhow::Result<PValue<'doc>> {
 /// - `<img src="./cat.png" alt="a Kitty Cat" /> | attrs()` returns `{ src: "./cat.png", alt: "a Kitty Cat" }`
 /// - `<p>Hello!</p> | attrs()` returns `{}`
 #[filter_fn]
-fn attrs<'doc>(value: scraper::ElementRef<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn attrs<'doc>(value: scraper::ElementRef<'doc>) -> anyhow::Result<PValue<'doc>> {
     Ok(Value::Structure(
         value
             .value()
@@ -181,7 +181,7 @@ fn attrs<'doc>(value: scraper::ElementRef<'doc>) -> anyhow::Result<PValue<'doc>>
 /// - `{ kitty: "cat" } | take(key: "kitty")` returns `"cat"`
 /// - `{ kitty: "cat" } | take(key: "cat")` returns `null`
 #[filter_fn]
-fn take<'doc>(mut value: Structure<'doc>, key: Arc<str>) -> anyhow::Result<PValue<'doc>> {
+pub fn take<'doc>(mut value: Structure<'doc>, key: Arc<str>) -> anyhow::Result<PValue<'doc>> {
     Ok(value.remove(&key).unwrap_or(Value::Null))
 }
 
@@ -198,7 +198,7 @@ fn take<'doc>(mut value: Structure<'doc>, key: Arc<str>) -> anyhow::Result<PValu
 /// - `"1" | int()` returns `1`
 /// - `">_<" | int()` raises an error.
 #[filter_fn]
-fn int<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn int<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
     let n = match value {
         Value::Int(n) => n,
         Value::Float(x) => x as i64,
@@ -223,7 +223,7 @@ fn int<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
 /// - `"1.5" | float()` returns `1.5`
 /// - `">_<" | float()` raises an error.
 #[filter_fn]
-fn float<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn float<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
     let x = match value {
         Value::Int(n) => n as f64,
         Value::Float(x) => x,
@@ -248,7 +248,7 @@ fn float<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
 /// - `[1, 2, 3, 4] | nth(i: 0)` returns `1`
 /// - `[1, 2, 3, 4] | nth(i: 4)` raises an out-of-bounds error.
 #[filter_fn]
-fn nth<'doc>(mut value: ListIter<'doc>, i: i64) -> anyhow::Result<PValue<'doc>> {
+pub fn nth<'doc>(mut value: ListIter<'doc>, i: i64) -> anyhow::Result<PValue<'doc>> {
     match value.nth(i.try_into().context("negative indices are not supported")?) {
         Some(x) => Ok(x),
         None => anyhow::bail!("No element at index {i}"),
@@ -266,7 +266,7 @@ fn nth<'doc>(mut value: ListIter<'doc>, i: i64) -> anyhow::Result<PValue<'doc>> 
 /// - `{a: 1, b: "hello"} | values()` returns `["a", "b"]`
 /// - `{} | values()` returns `[]`
 #[filter_fn]
-fn keys<'doc>(value: Structure<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn keys<'doc>(value: Structure<'doc>) -> anyhow::Result<PValue<'doc>> {
     Ok(Value::Extra(Pipeline::ListIter(Box::new(
         value.into_keys().map(Value::String),
     ))))
@@ -283,7 +283,7 @@ fn keys<'doc>(value: Structure<'doc>) -> anyhow::Result<PValue<'doc>> {
 /// - `{a: 1, b: "hello"} | values()` returns `[1, "hello"]`
 /// - `{} | values()` returns `[]`
 #[filter_fn]
-fn values<'doc>(value: Structure<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn values<'doc>(value: Structure<'doc>) -> anyhow::Result<PValue<'doc>> {
     Ok(Value::Extra(Pipeline::ListIter(Box::new(
         value.into_values(),
     ))))
@@ -299,7 +299,7 @@ fn values<'doc>(value: Structure<'doc>) -> anyhow::Result<PValue<'doc>> {
 /// - `true | or(with: true)` returns `true`
 /// - `false | or(with: true)` returns `false`
 #[filter_fn]
-fn and<'doc>(value: bool, with: bool) -> anyhow::Result<PValue<'doc>> {
+pub fn and<'doc>(value: bool, with: bool) -> anyhow::Result<PValue<'doc>> {
     Ok(Value::Bool(value && with))
 }
 
@@ -313,7 +313,7 @@ fn and<'doc>(value: bool, with: bool) -> anyhow::Result<PValue<'doc>> {
 /// - `true | or(with: false)` returns `true`
 /// - `false | or(with: false)` returns `false`
 #[filter_fn]
-fn or<'doc>(value: bool, with: bool) -> anyhow::Result<PValue<'doc>> {
+pub fn or<'doc>(value: bool, with: bool) -> anyhow::Result<PValue<'doc>> {
     Ok(Value::Bool(value || with))
 }
 
@@ -326,7 +326,7 @@ fn or<'doc>(value: bool, with: bool) -> anyhow::Result<PValue<'doc>> {
 /// - `true | not()` returns `false`
 /// - `false | not()` returns `true`
 #[filter_fn]
-fn not<'doc>(value: bool) -> anyhow::Result<PValue<'doc>> {
+pub fn not<'doc>(value: bool) -> anyhow::Result<PValue<'doc>> {
     Ok(Value::Bool(!value))
 }
 
@@ -341,7 +341,7 @@ fn not<'doc>(value: bool) -> anyhow::Result<PValue<'doc>> {
 /// - `"my very excellent mother" | split(on: "excellent") returns `["my very ", " mother"]
 /// - `"my very excellent mother" | split(on: "HAMPSTERS") returns ["my very excellent mother"]
 #[filter_fn]
-fn split<'doc>(value: Arc<str>, on: Option<Arc<str>>) -> anyhow::Result<PValue<'doc>> {
+pub fn split<'doc>(value: Arc<str>, on: Option<Arc<str>>) -> anyhow::Result<PValue<'doc>> {
     if let Some(delim) = on {
         Ok(Value::List(
             value
@@ -368,7 +368,7 @@ fn split<'doc>(value: Arc<str>, on: Option<Arc<str>>) -> anyhow::Result<PValue<'
 /// - `2 | eq(to: 2)` is `true`
 /// - `6 | eq(to: 2)` is `false`.
 #[filter_fn]
-fn eq<'doc>(value: PValue<'doc>, to: EValue<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn eq<'doc>(value: PValue<'doc>, to: EValue<'doc>) -> anyhow::Result<PValue<'doc>> {
     Ok(Value::Bool(EValue::from(value) == to))
 }
 
@@ -382,7 +382,7 @@ fn eq<'doc>(value: PValue<'doc>, to: EValue<'doc>) -> anyhow::Result<PValue<'doc
 ///
 /// Then `2 | is_in(list: $list)` is `true`, but `6 | is_in(list: $list)` is `false.
 #[filter_fn]
-fn is_in<'doc>(value: PValue<'doc>, list: Vec<EValue<'doc>>) -> anyhow::Result<PValue<'doc>> {
+pub fn is_in<'doc>(value: PValue<'doc>, list: Vec<EValue<'doc>>) -> anyhow::Result<PValue<'doc>> {
     Ok(Value::Bool(list.contains(&value.into())))
 }
 
@@ -408,7 +408,7 @@ fn is_in<'doc>(value: PValue<'doc>, list: Vec<EValue<'doc>>) -> anyhow::Result<P
 /// - `[null] | truthy()` is `true` (a List containing `null` is nonempty)
 /// - `true | truthy()` is `true`
 #[filter_fn]
-fn truthy<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn truthy<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
     let truthy = match value {
         Value::Null => false,
         Value::Float(f) => f != 0.,
