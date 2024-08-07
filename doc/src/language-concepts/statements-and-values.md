@@ -92,5 +92,31 @@ more in depth in the section on element contexts).
 The next (and maybe most important) type of value is the [`Element`](./elements-and-selectors.md)
 which will let us read data from a web page, explained in the next section.
 
+## Shadowing
+
+It is possible to have two statements bind values to the *same name* in the same scope.
+This is called **shadowing**.  Only the last (bottommost) statement with a given
+name will appear in the program output, but at any point, referencing `$name` will
+give the current most recently defined binding of that name.
+
+### Example
+
+```scrp
+output: "Not me!";
+output: "or me...";
+// save $output at this point in time
+snapshot: $output;
+output: "I will be the final result!";
+```
+
+will output:
+
+```json
+{
+  "output": "I will be the final result!",
+  "snapshot": "or me..."
+}
+```
+
 [^element-caveat]: Elements are only available inside an *element context*
   and are not outputted in the final result.
