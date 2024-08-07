@@ -52,8 +52,8 @@ It will output:
   contains documentation on language concepts and how to write a `scrapelect`
   program.
 - Additionally, documentation for scrapelect's built-in filters
-  is located at [docs.rs](https://docs.rs/scrapelect/latest/scrapelect/interpreter/filter/builtin.html)
-- Developer-level documentation is also at [docs.rs]([docs.rs](https://docs.rs/scrapelect/latest/scrapelect),
+  is located at [docs.rs](https://docs.rs/scrapelect/latest/scrapelect/interpreter/filter/builtin)
+- Developer-level documentation is also at [docs.rs](https://docs.rs/scrapelect/latest/scrapelect),
   but it is currently incomplete.
 
 ## community

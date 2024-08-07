@@ -74,7 +74,7 @@ where `bind` is still a string but `new` is an int.
 ## Filter documentation
 
 Documentation for all of the built-in filters is available at
-[docs.rs](https://docs.rs/scrapelect/latest/scrapelect/interpreter/filter/builtin.html),
+[docs.rs](https://docs.rs/scrapelect/latest/scrapelect/interpreter/filter/builtin/),
 which lists filter signatures, descriptions, and examples.
 
 ## Chaining filters
