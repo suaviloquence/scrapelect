@@ -5,7 +5,7 @@
 **Statements** are the basic building block of `scrapelect`
 programs.  At its core, a statement is a binding `name: value;`.
 This means "store the `value` into the name `name`" at the
-current scope in the program.
+current context in the program.
 
 When the program finishes, the `scrapelect` interpreter will output
 structured data as defined by the statements in the program.
@@ -86,7 +86,7 @@ will output:
 Note that `scrapelect` programs are executed in sequential order, so
 you can only read bindings that were defined above the statement
 that is using them.  Also, only bindings in the current or
-more outer scopes can be accessed like this (which will be covered
+more outer contexts can be accessed like this (which will be covered
 more in depth in the section on element contexts).
 
 The next (and maybe most important) type of value is the [`Element`](./elements-and-selectors.md)
@@ -94,7 +94,7 @@ which will let us read data from a web page, explained in the next section.
 
 ## Shadowing
 
-It is possible to have two statements bind values to the *same name* in the same scope.
+It is possible to have two statements bind values to the *same name* in the same context.
 This is called **shadowing**.  Only the last (bottommost) statement with a given
 name will appear in the program output, but at any point, referencing `$name` will
 give the current most recently defined binding of that name.
