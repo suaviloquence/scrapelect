@@ -250,7 +250,7 @@ pub enum Ast<'a> {
     @flatten[self, .next]
     ArgList {
         id: &'a str,
-        value: Leaf<'a>,
+        value: Inline<'a>,
         next: Option<AstRef<'a, ArgList<'a>>>,
     },
     FilterCall {

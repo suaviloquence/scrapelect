@@ -191,6 +191,30 @@ impl<'a> Parser<'a> {
         Ok(Inline { value, filters })
     }
 
+    fn parse_value(&mut self) -> Result<Inline<'a>> {
+        let (span, lx) = self.scanner.peek_non_whitespace();
+        match lx.token {
+            Token::Less => self.parse_inline(),
+            Token::Dollar | Token::Int | Token::Float | Token::String => {
+                self.parse_leaf().map(|value| Inline {
+                    value,
+                    filters: None,
+                })
+            }
+            _ => Err(ParseError::unexpected(
+                vec![
+                    Token::Less,
+                    Token::Dollar,
+                    Token::Int,
+                    Token::Float,
+                    Token::String,
+                ],
+                lx,
+                span,
+            )),
+        }
+    }
+
     fn parse_selector_list(&mut self) -> Result<Option<AstRef<'a, SelectorList<'a>>>> {
         let mut item = self.scanner.peek_non_comment();
         if item.1.token == Token::Whitespace {
@@ -334,7 +358,7 @@ impl<'a> Parser<'a> {
                 let id = lx.value;
                 self.scanner.eat_token();
                 self.try_eat(Token::Colon)?;
-                let value = self.parse_leaf()?;
+                let value = self.parse_value()?;
                 let next = match self.scanner.peek_non_whitespace().1.token {
                     Token::Comma => {
                         self.scanner.eat_token();
@@ -515,7 +539,10 @@ mod tests {
                 &args[..],
                 [ArgList {
                     id: "i",
-                    value: Leaf::String(Cow::Borrowed("x")),
+                    value: Inline {
+                        value: Leaf::String(Cow::Borrowed("x")),
+                        filters: None,
+                    },
                     ..
                 }]
             ),

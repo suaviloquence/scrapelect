@@ -250,7 +250,7 @@ impl<'ast> Interpreter<'ast> {
                         .ast
                         .flatten(call.args)
                         .into_iter()
-                        .map(|arg| Ok((arg.id, ctx.leaf_to_value(&arg.value)?)))
+                        .map(|arg| Ok((arg.id, self.eval_inline(&arg.value, ctx)?)))
                         .collect::<Result<BTreeMap<_, _>>>()?;
                     qualify(filter.qualifier, value, |value| {
                         filter::dispatch_filter(call.id, value, args.clone(), ctx)
