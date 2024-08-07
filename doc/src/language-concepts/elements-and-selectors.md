@@ -170,6 +170,69 @@ structure, and return `null` if it is not present:
 
 Note that `child` is an empty structure, even though it bound `this` to `$element`.
 
+## Selecting multiple elements: qualifiers
+
+By default, an element block will only select the first element that matches
+a selector, and raise an error if it is not found.  However, it
+is often useful to select all the elements that match a selector,
+or select one optional element, not raising an error if it does
+not exist.  We can specify how many elements to expect with
+**qualifiers**.  A qualifier is placed at the end of an element
+context block, and can be one of:
+
+- `` (no qualifier): the default, so select the first element that
+  matches this selector, and raises an error if there are none
+- `?` (optional): similarly, selects the first element matching the
+  selector, but the element context evaluates to `null` instead
+  of erroring if there is no element matching that selector
+- `*` (all): select all elements matching this selector, evaluate
+  the element block for each one, and place the results in a `List`
+
+### Examples
+
+Take the document fragment:
+
+```html
+<li>1</li>
+<li class="even"">2</li>
+<li>3</li>
+<li class="even">4</li>
+```
+
+Given the `scrp`:
+
+```scrp
+// no qualifier (first)
+first_num: li {
+  text: $element | text();
+};
+
+// * qualifier (all)
+numbers: li {
+  text: $element | text();
+}*;
+
+// ? qualifier (optional)
+optional: #not-here {
+  text: $element | text();
+}?;
+```
+
+will output:
+
+```json
+{
+  "first_num": { "text": "1" },
+  "numbers": [
+    { "text": "1" },
+    { "text": "2" },
+    { "text": "3" },
+    { "text": "4" }
+  ],
+  "optional": null
+}
+```
+
 
 [^pseudoclass-caveat]: Certain CSS features, like pseudoclasses and attribute
   selectors, are not currently supported in `scrapelect`.
