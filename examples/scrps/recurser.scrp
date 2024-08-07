@@ -3,5 +3,5 @@ link: a {
 } | take(key: "href");
 
 new_page: <$link> h1 {
-    content: $text;
+    content: $element | text();
 };

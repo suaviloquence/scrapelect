@@ -1,4 +1,4 @@
-use std::{borrow::Cow, cell::OnceCell, collections::BTreeMap, sync::Arc};
+use std::{borrow::Cow, collections::BTreeMap, sync::Arc};
 
 use anyhow::Context;
 use execution_mode::ExecutionMode;
@@ -86,7 +86,6 @@ impl<'ast> From<DataVariables<'ast>> for Value {
 pub struct ElementContext<'ast, 'ctx> {
     variables: Variables<'ast, 'ctx>,
     element: scraper::ElementRef<'ctx>,
-    text: OnceCell<Arc<str>>,
     parent: Option<&'ctx ElementContext<'ast, 'ctx>>,
     url: Url,
 }
@@ -162,7 +161,6 @@ impl<'ast> Interpreter<'ast> {
             element,
             parent,
             variables: Variables::default(),
-            text: OnceCell::new(),
             url,
         };
 
@@ -264,7 +262,6 @@ impl<'ast> Interpreter<'ast> {
                     let mut inner_scope = ElementContext {
                         element: ctx.element,
                         variables: Variables::default(),
-                        text: OnceCell::new(),
                         parent: Some(ctx),
                         url: ctx.url.clone(),
                     };
@@ -325,13 +322,6 @@ impl<'ast, 'ctx> ElementContext<'ast, 'ctx> {
     pub fn get_var(&self, id: &str) -> anyhow::Result<EValue<'ctx>> {
         match id {
             "element" => Ok(self.element.into()),
-            "text" => Ok(Value::String(Arc::clone(self.text.get_or_init(|| {
-                self.element
-                    .children()
-                    .filter_map(|x| x.value().as_text().map(|x| &**x))
-                    .collect::<String>()
-                    .into()
-            })))),
             var => match self.variables.0.get(var) {
                 Some(var) => Ok(var.clone()),
                 None => self
@@ -344,7 +334,7 @@ impl<'ast, 'ctx> ElementContext<'ast, 'ctx> {
 
     pub fn set_var(&mut self, name: Cow<'ast, str>, value: EValue<'ctx>) -> anyhow::Result<()> {
         match &*name {
-            immutable @ ("element" | "text") => {
+            immutable @ "element" => {
                 anyhow::bail!("Can't assign to immutable variable `{immutable}`")
             }
             _ => self.variables.0.insert(name, value),
@@ -441,11 +431,11 @@ mod tests {
         let output = super::interpret_string_harness(
             r#"
             h3: h3 {
-                txt: $text;
+                text: $element | text();
 
                 a: a {
-                    child: $text;
-                    parent: $txt;
+                    child: $element | text();
+                    parent: $text;
                 }*;
                 div: div {}?;
             };
@@ -488,7 +478,7 @@ mod tests {
         );
 
         assert!(
-            match d.get("txt") {
+            match d.get("text") {
                 Some(String(x)) => &**x == "Hello,parent!",
                 _ => false,
             },

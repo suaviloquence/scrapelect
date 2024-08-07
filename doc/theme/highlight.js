@@ -3358,7 +3358,7 @@ if (typeof exports === "object" && typeof module !== "undefined") {
   function scrp(hljs) {
     return {
       case_insensitive: false,
-      keywords: ["text", "element"],
+      keywords: ["element"],
       contains: [hljs.C_LINE_COMMENT_MODE, hljs.QUOTE_STRING_MODE],
     };
   }

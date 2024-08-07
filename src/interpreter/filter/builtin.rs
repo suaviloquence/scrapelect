@@ -376,6 +376,27 @@ pub fn truthy<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
     Ok(Value::Bool(truthy))
 }
 
+/// Signature: `value: Element | text(): String`
+///
+/// Returns the text contained inside this element.  Note that this is just
+/// direct text, not the text of any descendent elements.
+///
+/// # Examples
+///
+/// -  Let `element` = `<div>Hello...<span>inner</span>...world!</div>`
+///   - Then `$element | text()` is `"Hello......world!"`
+/// - `<img /> | text()` is `""`
+#[filter_fn]
+pub fn text<'doc>(value: scraper::ElementRef<'doc>) -> anyhow::Result<PValue<'doc>> {
+    Ok(Value::String(
+        value
+            .children()
+            .filter_map(|x| x.value().as_text().map(|text| &*text.text))
+            .collect::<String>()
+            .into(),
+    ))
+}
+
 macro_rules! build_map {
     ($(
         $id: ident,
@@ -407,6 +428,7 @@ pub static FILTERS: LazyLock<BTreeMap<&'static str, Box<dyn FilterDyn + Send + S
             split,
             eq,
             is_in,
+            text,
         }
         .into_iter()
         .collect()

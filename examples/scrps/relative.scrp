@@ -3,5 +3,5 @@ href: a {
 } | take(key: "href");
 
 relative: <$href> #success {
-    x: $text;
+    x: $element | text();
 } | take(key: "x");

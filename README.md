@@ -148,7 +148,7 @@ For example, take the input element `<p id="meowing">Meow mrrp meow meow!</p>`. 
 
 ```
 meow_element: #meowing {
-  meows: $text;
+  meows: $element | text();
 };
 ```
 
@@ -177,7 +177,7 @@ this scrp
 ```
 parent: #parent {
   child: p {
-    child_text: $text;
+    child_text: $element | text();
   }
 };
 ```

@@ -7,6 +7,6 @@ expression: result
     "link": {
       "parent": "Hello, world!"
     },
-    "txt": "Hello, world!"
+    "text": "Hello, world!"
   }
 }

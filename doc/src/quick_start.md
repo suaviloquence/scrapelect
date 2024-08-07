@@ -19,11 +19,11 @@ A `scrapelect` program stored in a `name.scrp` file.  Let's create and edit the 
 
 ```scrp
 title: .mw-page-title-main {
-  content: $text;
+  content: $element | text();
 };
 
 headings: .mw-heading > * {
-  content: $text;
+  content: $element | text();
 }*;
 ```
 
