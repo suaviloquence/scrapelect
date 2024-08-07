@@ -1,7 +1,5 @@
 # Elements and Selectors
 
-## Element
-
 An **element** is a special kind of Value that is used to scrape and get
 information about a part of a web page. An element represents an HTML element,
 such as `<img src="https://cdn2.thecatapi.com/images/edq.jpg" />` or
@@ -9,7 +7,7 @@ such as `<img src="https://cdn2.thecatapi.com/images/edq.jpg" />` or
 **element context**, a block of statements where the special binding
 `$element` contains the element.
 
-### Selecting an element
+## Selecting an element
 
 In `scrapelect`, we identify an element by its *CSS selector*. This can be simple
 (e.g., the tag name: `h1`), or arbitrarily complex because selectors can be
@@ -27,13 +25,13 @@ Common selector patterns:
   a parent element: selecting the `span` in `<a id="b"><span class="c d">...</span></a>`
 - ...and many more.  See the [MDN reference](https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_selectors) for more.
 
-### Creating an element context
+## Creating an element context
 
 An element context is a selector block with a list of statements that evaluates
 to a nested structure when interpreted.  Inside the block, the binding `$element`
 provides access to the element specified by the selector.
 
-#### Example
+### Example
 
 On the following fragment:
 
@@ -63,7 +61,7 @@ structure stored in `special`.  (Note: `$element | text()` is calling the `text`
 filter on `$element`, which will be explained in the [filters](./filters.md)
 chapter, but it means "get the text inside the element `$element`").
 
-### Nested contexts
+## Nested contexts
 
 Inside an element context, there are statements.  And statements can bind names
 to element contexts.  Thus, it is valid (and often useful) to have a nested element
@@ -102,9 +100,76 @@ will output
 }
 ```
 
-#### Scope
+## Scope
+
+Inside an element context block, it is possible to read bindings from
+an outer context if they are declared above the current statement.  However,
+if an item exists in a more inner context, it will shadow the outer one.
+
+### Example
+
+```scrp
+context: "outer";
+outer: "outer";
+
+parent: parent {
+  context: "middle";
+  child: child {
+    context: $context;
+    outer: $outer;
+  };
+};
+```
+
+outputs
+
+```json
+{
+  "context": "outer",
+  "outer": "outer",
+  "parent": {
+    "child": {
+      "context": "middle",
+      "outer": "outer"
+    },
+    "context": "middle"
+  }
+}
+```
+
+Note that it is not *directly* possible to read bindings declared in a context more inner than the current,
+even if the block is above the current statement, since an element context block is evaluated into a
+structure.  However, with filters like `take`, it is possible to read this data, just not
+by binding name syntax `$name`.
 
 ### Element lifetime
+
+It is possible to rebind the value contained in `$element`.  However, because an element
+is only valid inside the element context, these will not be returned in the final output.
+In fact, any bindings that contain `$element` at the close of an element block will be
+omitted from the returned structure.
+
+#### Example
+
+```scrp
+child: a {
+  this: $element;
+};
+unexpected: child | take(key: "this");
+```
+
+will output, where `child | take(key: "this")` means "return the value with key `"this"` in the `child`
+structure, and return `null` if it is not present:
+
+```json
+{
+  "child": {},
+  "unexpected": null
+}
+```
+
+Note that `child` is an empty structure, even though it bound `this` to `$element`.
+
 
 [^pseudoclass-caveat]: Certain CSS features, like pseudoclasses and attribute
   selectors, are not currently supported in `scrapelect`.
