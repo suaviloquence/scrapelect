@@ -64,6 +64,8 @@ It will output:
   using `scrapelect`
 - Also, consider submitting a [pull request](https://github.com/suaviloquence/scrapelect/pulls)
   to contribute to the code or documentation.
+- See the [contributing](https://suaviloquence.github.io/scrapelect/contributing.html)
+  chapter of the `scrapelect` book for more information on contributing to `scrapelect`.
 
 ## license
 
