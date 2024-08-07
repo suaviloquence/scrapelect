@@ -2,6 +2,7 @@
 
 [The Scrapelect Book](./the-book.md)
 - [Quick Start](./quick_start.md)
+- [Interpreter CLI](./interpreter-cli.md)
 - [Language Concepts](./language-concepts/README.md)
   - [Statements and Values](./language-concepts/statements-and-values.md)
   - [Elements and Selectors](./language-concepts/elements-and-selectors.md)
