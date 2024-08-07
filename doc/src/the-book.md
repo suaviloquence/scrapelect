@@ -7,7 +7,7 @@ in a structured, machine-readable format.
 
 `scrapelect` is currently in development, and the language and
 interpreter are changing.  This book aims to be up to date with
-the latest released version (currently v0.3.1).  If something
+the latest released version (currently v0.3.2).  If something
 is inconsistent or incorrect, please consider submitting an
 [issue](https://github.com/suaviloquence/scrapelect/issues/new?labels=documentation)
 or pull request to help improve the documentation.

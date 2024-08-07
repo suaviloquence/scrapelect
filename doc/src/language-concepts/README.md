@@ -8,6 +8,6 @@ output that you desire.
 
 `scrapelect` is in beta, so it's possible that changes to the language on the `dev`
 branch may not be reflected yet in this book.  The information should be correct
-for the latest released version (v0.3.0).  If the documentation is incorrect or
+for the latest released version (v0.3.2).  If the documentation is incorrect or
 could be improved, consider filing an [issue](https://github.com/suaviloquence/scrapelect/issues/new?labels=documentation)
 or pull request, as `scrapelect` is an open source project.
