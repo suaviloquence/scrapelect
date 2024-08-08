@@ -3356,10 +3356,100 @@ if (typeof exports === "object" && typeof module !== "undefined") {
 
 (function () {
   function scrp(hljs) {
+    const IDENT = /[a-zA-Z0-9_-]+/;
+    const TAG = "((\\.|#)?[a-zA-Z0-9_-]+)|\\*";
+
+    let element_block = {
+      begin: [new RegExp(`${TAG}(\\s*(>|\\+|~)?\s*${TAG})*`), /\s+/, /\{/],
+      beginScope: {
+        1: "literal",
+        3: "punctuation",
+      },
+      contains: [],
+      end: "}",
+      endScope: "punctuation",
+    };
+
+    let value = {
+      variants: [
+        hljs.QUOTE_STRING_MODE,
+        hljs.C_NUMBER_MODE,
+        {
+          begin: [/\$/, IDENT],
+          beginScope: {
+            1: "operator",
+            2: "variable",
+          },
+          keywords: ["element"],
+        },
+        element_block,
+      ],
+    };
+
+    let select_filter = {
+      begin: [/\[/, /\s*/, IDENT, /\s*/, /:/],
+      beginScope: {
+        1: "punctuation",
+        3: "params",
+        5: "punctuation",
+      },
+      contains: [value],
+      end: /\]/,
+    };
+
+    let filter = {
+      begin: /\|/,
+      beginScope: "punctuation",
+      variants: [
+        {
+          begin: [IDENT, /\s*/, /\(/],
+          beginScope: {
+            1: "title.function",
+            3: "punctuation",
+          },
+          contains: [
+            {
+              begin: [IDENT, /\s*/, /:/],
+              beginScope: {
+                1: "params",
+                3: "punctuation",
+              },
+              contains: [value],
+              end: /,|(?=\))/,
+            },
+            select_filter,
+          ],
+          end: /\)/,
+        },
+      ],
+      end: /(\*|\?)?/,
+      endScope: "operator",
+    };
+
+    select_filter.contains.push(filter);
+
+    let inline = {
+      begin: "<",
+      end: ">",
+      contains: [value, filter],
+    };
+    value.variants.push(inline);
+
+    let statement = {
+      begin: [IDENT, /\s*/, /:/],
+      beginScope: {
+        1: "variable",
+        3: "punctuation",
+      },
+      contains: [value, filter],
+      end: /;/,
+    };
+
+    element_block.contains.push(statement);
+
     return {
       case_insensitive: false,
-      keywords: ["element"],
-      contains: [hljs.C_LINE_COMMENT_MODE, hljs.QUOTE_STRING_MODE],
+      contains: [hljs.C_LINE_COMMENT_MODE, statement],
     };
   }
 

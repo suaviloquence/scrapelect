@@ -43,7 +43,7 @@ On the following fragment:
 ```scrp
 special: #special {
   text: $element | text();
-}
+};
 ```
 
 will output:
@@ -155,7 +155,7 @@ omitted from the returned structure.
 child: a {
   this: $element;
 };
-unexpected: child | take(key: "this");
+unexpected: $child | take(key: "this");
 ```
 
 will output, where `child | take(key: "this")` means "return the value with key `"this"` in the `child`
