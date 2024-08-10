@@ -2,10 +2,9 @@ use std::{iter, option, vec};
 
 use crate::frontend::ast::Qualifier;
 
-use anyhow::Context;
 use ExecutionMode::{Collection, One, Optional};
 
-use super::Value;
+use super::{MessageExt, Result, Value};
 
 /// Whether we are matching a list, singular item, or optional item
 /// as specified by the user
@@ -52,13 +51,10 @@ impl<T> IntoIterator for ExecutionMode<T> {
 }
 
 impl<T> ExecutionMode<T> {
-    pub fn hinted_from_iter<I: Iterator<Item = T>>(
-        ops: Qualifier,
-        mut iter: I,
-    ) -> anyhow::Result<Self> {
+    pub fn hinted_from_iter<I: Iterator<Item = T>>(ops: Qualifier, mut iter: I) -> Result<Self> {
         Ok(match ops {
             // TODO: take the first, or fail if there are > 1?
-            Qualifier::One => One(iter.next().context("Expected exactly one value")?),
+            Qualifier::One => One(iter.next().msg("expected exactly one value, got none")?),
             Qualifier::Optional => Optional(iter.next()),
             Qualifier::Collection => Collection(iter.collect()),
         })

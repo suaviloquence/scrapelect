@@ -1,0 +1,14 @@
+[package]
+name = "scrapelect-filter-types"
+version = "0.1.0"
+edition = "2021"
+authors = ["Max Carr <m@mcarr.one>"]
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/suaviloquence/scrapelect"
+description = "Types for making scrapelect Filters"
+
+[dependencies]
+scraper = "0.19"
+serde = { version = "1.0", features = ["derive", "rc"] }
+url = "2.5"
+scrapelect-filter-proc-macro = { version = "0.3.2", path = "../filter-proc-macro" }

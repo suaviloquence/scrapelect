@@ -1,34 +1,76 @@
-use std::{collections::BTreeMap, fmt, sync::Arc};
+#![allow(clippy::enum_glob_use)]
+use std::{collections::BTreeMap, convert::Infallible, fmt, sync::Arc};
 
-use anyhow::Context as _;
 use serde::Serialize;
 
-use super::Result;
+use super::{MessageExt, Result};
+
+/// Type alias representing a key-value structure of [`Value`]
 pub type Structure<T> = BTreeMap<Arc<str>, Value<T>>;
+
+/// Type alias of the pipeline value of a [`PValue`] iterator, representing a sequence.
 pub type ListIter<'a> = Box<dyn Iterator<Item = PValue<'a>> + 'a>;
+
+/// Type alias of the pipeline value of a (`Arc<str>`, [`PValue`]) iterator, representing a structure.
 pub type StructIter<'a> = Box<dyn Iterator<Item = (Arc<str>, PValue<'a>)> + 'a>;
 
+/// Trait for attempting to unwrap a [`Value`] into a concrete type.
 pub trait TryFromValue<T>: Sized {
+    /// Try to unwrap a [`Value`] variant into an instance of type `Self`.
+    ///
+    /// # Errors
+    ///
+    /// Implementors should return an `Err` if the input value cannot be unwrapped
+    /// into `Self.`
     fn try_from_value(value: Value<T>) -> Result<Self>;
+    /// Try to unwrap a [`Option<Value>`] into `Self`.  The default implementation
+    /// is often sufficient, but sometimes it is helpful to be able to express
+    /// this.
+    ///
+    /// # Errors
+    ///
+    /// Implementors should return an `Err` if the input value cannot be unwrapped
+    /// into `Self.`
     fn try_from_option(value: Option<Value<T>>) -> Result<Self> {
-        Self::try_from_value(value.context("Expected a value, found null.")?)
+        Self::try_from_value(value.msg("Expected a value, found null.")?)
     }
 }
 
+/// A variant-typed value of any type of value that can be represented in a scrapelect
+/// program.
+///
+/// # Extension Type
+///
+/// It is possible to store other fields in the `Extra` variant of this enum, by
+/// changing the type parameter `T`.  Note that this will affect the size of the
+/// `Value`, and `Value<X>` is not necessarily transmutable with `Value<Y>`.  The
+/// core `scrapelect` interpreter uses the [`Data`] (never type, no extra), [`Element`]
+/// (contains element references), and [`Pipeline`] (contains element references and
+/// intermediate iterators) extensions.
 #[derive(Debug, Serialize, Clone, PartialEq)]
 #[serde(untagged)]
 pub enum Value<T = Data> {
+    /// A value of `null`.
     #[serde(serialize_with = "serialize_null_as_option")]
     Null,
+    /// A floating-point value.
     Float(f64),
+    /// A signed integer value.
     Int(i64),
+    /// A boolean value.  Note that this is distinct from the integer type.
     Bool(bool),
+    /// A UTF-8 string value, stored as an `Arc<str>` for cheaper cloning.
     String(Arc<str>),
+    /// A list of other values, not necessarily of the same type.
     List(Vec<Value<T>>),
+    /// A String-value nested mapping of values.
     Structure(Structure<T>),
+    /// Any extensions variants to this type.  See the main struct for more.
     Extra(T),
 }
 
+/// Helper trait to implement [`TryFromValue<T>` on all [`Value<X>`] for T if T is a
+/// common data type that doesn't depend on T.
 trait TryFromData: Sized {
     fn try_from_data(value: Value) -> Result<Self>;
 }
@@ -39,7 +81,7 @@ macro_rules! generate_impls {
             impl TryFromData for $ty {
                 fn try_from_data(value: Value) -> Result<Self> {
                     let Value::$variant(x) = value else {
-                        anyhow::bail!("Expected {}, got {:?}", stringify!($variant), value);
+                        bail!("expected a {}, got {}", stringify!($variant), value);
                     };
                     Ok(x)
                 }
@@ -63,6 +105,9 @@ generate_impls! {
 }
 
 impl<X> Value<X> {
+    /// Convert from a `Value<Data>` (no extensions) to `Self`.  This is always
+    /// possible because `Value<Data>` is a subset of `Value<X>`.
+    #[must_use]
     pub fn from_data(value: Value) -> Self {
         use Value::*;
 
@@ -78,10 +123,15 @@ impl<X> Value<X> {
                     .map(|(k, v)| (k, Self::from_data(v)))
                     .collect(),
             ),
-            Extra(never) => never.0,
+            Extra(never) => match never.0 {},
         }
     }
 
+    /// Try to convert this Value into `Value<Data>`.
+    ///
+    /// This is a **lossy operation**.  If `self` is `Value::Extra`, it is not
+    /// possible to convert into just data, and this will return `None`.
+    #[must_use]
     pub fn into_data(self) -> Option<Value> {
         use Value::*;
 
@@ -107,39 +157,45 @@ impl<T: TryFromData, X> TryFromValue<X> for T {
         T::try_from_data(
             value
                 .into_data()
-                .context("Unsupported data type with default implementation")?,
+                .msg("unsupported data type with default TryFromData conversion")?,
         )
     }
 }
 
+/// The default extension for a [`Value`], marking that it is not possible to
+/// have a `Value::Extra` variant.
 #[allow(unreachable_code)]
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Data(!);
+pub struct Data(Infallible);
 
 impl Serialize for Data {
     fn serialize<S>(&self, _: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        self.0
+        match self.0 {}
     }
 }
 
 impl fmt::Display for Data {
     fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0
+        match self.0 {}
     }
 }
 
-pub type EValue<'a> = Value<ElementCtx<'a>>;
+/// [`Value`] in an element block context, valid for that context.
+pub type EValue<'a> = Value<Element<'a>>;
 
+/// Extension to hold element context in a [`Value`].  Valid as long as the
+/// element context is valid.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ElementCtx<'a> {
+pub enum Element<'a> {
+    /// An reference to an HTML element.
     Element(scraper::ElementRef<'a>),
 }
 
-impl fmt::Display for ElementCtx<'_> {
+impl fmt::Display for Element<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Element(elem) => write!(f, "`{}`", elem.html()),
@@ -147,15 +203,24 @@ impl fmt::Display for ElementCtx<'_> {
     }
 }
 
+/// Extension to hold traits about a value in a pipeline, like lazy iterators
+/// and element context.
 pub type PValue<'a> = Value<Pipeline<'a>>;
 
+/// Extension to hold traits about a value in a pipeline, like lazy iterators
+/// and element context.
 #[non_exhaustive]
 pub enum Pipeline<'a> {
-    Element(ElementCtx<'a>),
+    /// Any element context from [`Element`]
+    Element(Element<'a>),
+    /// A lazy iterator of a sequence of [`PValue`]s, collectable into a list.
     ListIter(Box<dyn Iterator<Item = Value<Pipeline<'a>>> + 'a>),
+    /// A lazy iterator of a sequence of (`Arc<str>`, [`PValue`])s, collectable into a structure.
     StructIter(Box<dyn Iterator<Item = (Arc<str>, Value<Pipeline<'a>>)> + 'a>),
 }
 
+/// Convert from a [`PValue`] to a [`EValue`].  This is a lossless operation, and
+/// will collect any lazy iterators into structures.
 impl<'a> From<PValue<'a>> for EValue<'a> {
     fn from(value: PValue<'a>) -> Self {
         use Value::*;
@@ -175,6 +240,8 @@ impl<'a> From<PValue<'a>> for EValue<'a> {
     }
 }
 
+/// Convert from an [`EValue`] to a [`PValue`].  This is a lossless operation, and
+/// will prefer using iterators over collected data structures.
 impl<'a> From<EValue<'a>> for PValue<'a> {
     fn from(value: EValue<'a>) -> Self {
         use Value::*;
@@ -192,11 +259,15 @@ impl<'a> From<EValue<'a>> for PValue<'a> {
     }
 }
 
+/// Helper function to serialize `Value::Null` as `Option::None`, which is understood
+/// as a null value by e.g., `serde_json`.
 #[inline]
 fn serialize_null_as_option<S: serde::Serializer>(se: S) -> core::result::Result<S::Ok, S::Error> {
     None::<()>.serialize(se)
 }
 
+/// Convert from an [`EValue`] to a [`PValue`].  This is a lossless operation, and
+/// will prefer using iterators over collected data structures.
 impl<T: fmt::Display> fmt::Display for Value<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -244,11 +315,17 @@ impl<'a, X> From<&'a str> for Value<X> {
 
 impl<'a> From<scraper::ElementRef<'a>> for EValue<'a> {
     fn from(value: scraper::ElementRef<'a>) -> Self {
-        Self::Extra(ElementCtx::Element(value))
+        Self::Extra(Element::Element(value))
     }
 }
 
 impl<X> Value<X> {
+    /// Try to unwrap a value that implements [`TryFromValue<X>`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err` if it is not possible to unwrap `self` to an instance
+    /// of type `T`.
     #[inline]
     pub fn try_unwrap<T: TryFromValue<X>>(self) -> Result<T> {
         T::try_from_value(self)
@@ -280,11 +357,11 @@ impl<X, T: TryFromValue<X>> TryFromValue<X> for Option<T> {
     }
 }
 
-impl<'a> TryFromValue<ElementCtx<'a>> for scraper::ElementRef<'a> {
-    fn try_from_value(value: Value<ElementCtx<'a>>) -> Result<Self> {
+impl<'a> TryFromValue<Element<'a>> for scraper::ElementRef<'a> {
+    fn try_from_value(value: Value<Element<'a>>) -> Result<Self> {
         match value {
-            Value::Extra(ElementCtx::Element(e)) => Ok(e),
-            _ => anyhow::bail!("expected element, got {value:?}"),
+            Value::Extra(Element::Element(e)) => Ok(e),
+            _ => bail!("expected element, got {value}"),
         }
     }
 }
@@ -292,8 +369,8 @@ impl<'a> TryFromValue<ElementCtx<'a>> for scraper::ElementRef<'a> {
 impl<'a> TryFromValue<Pipeline<'a>> for scraper::ElementRef<'a> {
     fn try_from_value(value: Value<Pipeline<'a>>) -> Result<Self> {
         match value {
-            Value::Extra(Pipeline::Element(ElementCtx::Element(e))) => Ok(e),
-            _ => anyhow::bail!("expected element"),
+            Value::Extra(Pipeline::Element(Element::Element(e))) => Ok(e),
+            _ => bail!("expected an element, got {}", EValue::from(value)),
         }
     }
 }
@@ -303,7 +380,7 @@ impl<'a> TryFromValue<Pipeline<'a>> for ListIter<'a> {
         match value {
             Value::Extra(Pipeline::ListIter(i)) => Ok(i),
             Value::List(v) => Ok(Box::new(v.into_iter())),
-            _ => anyhow::bail!("expected sequence"),
+            _ => bail!("expected a List, got {}", EValue::from(value)),
         }
     }
 }
@@ -313,7 +390,7 @@ impl<'a> TryFromValue<Pipeline<'a>> for Vec<PValue<'a>> {
         match value {
             Value::Extra(Pipeline::ListIter(i)) => Ok(i.collect()),
             Value::List(v) => Ok(v),
-            _ => anyhow::bail!("expected sequence"),
+            _ => bail!("expected a List, got {}", EValue::from(value)),
         }
     }
 }
@@ -323,7 +400,7 @@ impl<'a> TryFromValue<Pipeline<'a>> for StructIter<'a> {
         match value {
             Value::Extra(Pipeline::StructIter(i)) => Ok(i),
             Value::Structure(s) => Ok(Box::new(s.into_iter())),
-            _ => anyhow::bail!("expected structure"),
+            _ => bail!("expected a Structure, got {}", EValue::from(value)),
         }
     }
 }
@@ -333,24 +410,24 @@ impl<'a> TryFromValue<Pipeline<'a>> for Structure<Pipeline<'a>> {
         match value {
             Value::Extra(Pipeline::StructIter(i)) => Ok(i.collect()),
             Value::Structure(s) => Ok(s),
-            _ => anyhow::bail!("expected structure"),
+            _ => bail!("expected a Structure, got {}", EValue::from(value)),
         }
     }
 }
 
-impl<'a> TryFromValue<ElementCtx<'a>> for Vec<EValue<'a>> {
-    fn try_from_value(value: Value<ElementCtx<'a>>) -> Result<Self> {
+impl<'a> TryFromValue<Element<'a>> for Vec<EValue<'a>> {
+    fn try_from_value(value: Value<Element<'a>>) -> Result<Self> {
         let Value::List(v) = value else {
-            anyhow::bail!("expected List, got {value:?}")
+            bail!("expected a List, got {value}")
         };
         Ok(v)
     }
 }
 
-impl<'a> TryFromValue<ElementCtx<'a>> for Structure<ElementCtx<'a>> {
-    fn try_from_value(value: Value<ElementCtx<'a>>) -> Result<Self> {
+impl<'a> TryFromValue<Element<'a>> for Structure<Element<'a>> {
+    fn try_from_value(value: Value<Element<'a>>) -> Result<Self> {
         let Value::Structure(s) = value else {
-            anyhow::bail!("expected Structure, got {value:?}")
+            bail!("expected a Structure, got {value}")
         };
         Ok(s)
     }

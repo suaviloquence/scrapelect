@@ -1,12 +1,8 @@
-#![feature(never_type)]
 #![forbid(unsafe_code)]
-use std::{env, sync::Arc};
+use std::env;
 
 use anyhow::Context;
-use scrapelect::{
-    frontend::Parser,
-    interpreter::{Interpreter, Value},
-};
+use scrapelect::{frontend::Parser, interpreter::Interpreter};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -40,14 +36,6 @@ async fn main() -> anyhow::Result<()> {
             head,
         )
         .await?;
-
-    let results = Value::Structure(
-        results
-            .0
-            .into_iter()
-            .map(|(k, v)| (Arc::from(&*k), v))
-            .collect(),
-    );
 
     println!("{}", serde_json::to_string_pretty(&results)?);
 

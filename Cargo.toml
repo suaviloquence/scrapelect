@@ -13,6 +13,7 @@ regex = "1.10"
 reqwest = "0.12.5"
 scraper = "0.19"
 tokio = { version = "1.38.0", features = ["full"] }
+scrapelect-filter-types = { path = "./filter-types", version = "0.1.0" }
 scrapelect-filter-proc-macro = { path = "./filter-proc-macro", version = "0.3.0" }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive", "rc"] }
@@ -20,7 +21,7 @@ futures = "0.3"
 url = "2.5"
 
 [workspace]
-members = [".", "filter-proc-macro"]
+members = [".", "filter-proc-macro", "filter-types"]
 
 [dev-dependencies]
 insta = { version = "1.39.0", features = ["json"] }

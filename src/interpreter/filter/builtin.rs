@@ -26,12 +26,9 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-use anyhow::Context as _;
-
-use crate::interpreter::{
-    filter::{filter_fn, FilterDyn},
-    value::{EValue, ListIter, PValue, Pipeline, Value},
-    ElementContext,
+use scrapelect_filter_types::{
+    bail, filter_fn, EValue, ElementContext, FilterDyn, ListIter, MessageExt, PValue, Pipeline,
+    Result, Value,
 };
 
 type Structure<'doc> = BTreeMap<Arc<str>, PValue<'doc>>;
@@ -44,7 +41,7 @@ type Structure<'doc> = BTreeMap<Arc<str>, PValue<'doc>>;
 ///
 /// - `"hi" | id()` returns `"hi"`
 #[filter_fn]
-pub fn id<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn id<'doc>(value: PValue<'doc>) -> Result<PValue<'doc>> {
     Ok(value)
 }
 
@@ -58,7 +55,7 @@ pub fn id<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
 /// - `"hi" | dbg()` returns `"hi"` and prints `dbg message: "hi"`
 /// - `"hi" | dbg(msg: "I say")` returns `"hi"` and prints `I say: "hi"`
 #[filter_fn]
-pub fn dbg<'doc>(value: PValue<'doc>, msg: Option<Arc<str>>) -> anyhow::Result<PValue<'doc>> {
+pub fn dbg<'doc>(value: PValue<'doc>, msg: Option<Arc<str>>) -> Result<PValue<'doc>> {
     let value: EValue = value.into();
     eprintln!("{}: {}", value, msg.as_deref().unwrap_or("dbg message"));
 
@@ -82,9 +79,9 @@ pub fn tee<'doc>(
     value: PValue<'doc>,
     into: Arc<str>,
     ctx: &mut ElementContext<'_, 'doc>,
-) -> anyhow::Result<PValue<'doc>> {
+) -> Result<PValue<'doc>> {
     let value: EValue = value.into();
-    ctx.set_var(into.to_string().into(), value.clone())?;
+    ctx.set(into.to_string().into(), value.clone())?;
     Ok(value.into())
 }
 
@@ -97,7 +94,7 @@ pub fn tee<'doc>(
 /// - `"    helloooo   ooo   " | strip()` returns `"helloooo   ooo"`
 /// - `"    " | strip()` returns `""`
 #[filter_fn]
-pub fn strip<'doc>(value: Arc<str>) -> anyhow::Result<PValue<'doc>> {
+pub fn strip<'doc>(value: Arc<str>) -> Result<PValue<'doc>> {
     Ok(Value::String(value.trim().into()))
 }
 
@@ -112,7 +109,7 @@ pub fn strip<'doc>(value: Arc<str>) -> anyhow::Result<PValue<'doc>> {
 /// - `<img src="./cat.png" alt="a Kitty Cat" /> | attrs()` returns `{ src: "./cat.png", alt: "a Kitty Cat" }`
 /// - `<p>Hello!</p> | attrs()` returns `{}`
 #[filter_fn]
-pub fn attrs<'doc>(value: scraper::ElementRef<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn attrs<'doc>(value: scraper::ElementRef<'doc>) -> Result<PValue<'doc>> {
     Ok(Value::Structure(
         value
             .value()
@@ -132,7 +129,7 @@ pub fn attrs<'doc>(value: scraper::ElementRef<'doc>) -> anyhow::Result<PValue<'d
 /// - `{ kitty: "cat" } | take(key: "kitty")` returns `"cat"`
 /// - `{ kitty: "cat" } | take(key: "cat")` returns `null`
 #[filter_fn]
-pub fn take<'doc>(mut value: Structure<'doc>, key: Arc<str>) -> anyhow::Result<PValue<'doc>> {
+pub fn take<'doc>(mut value: Structure<'doc>, key: Arc<str>) -> Result<PValue<'doc>> {
     Ok(value.remove(&key).unwrap_or(Value::Null))
 }
 
@@ -149,14 +146,12 @@ pub fn take<'doc>(mut value: Structure<'doc>, key: Arc<str>) -> anyhow::Result<P
 /// - `"1" | int()` returns `1`
 /// - `">_<" | int()` raises an error.
 #[filter_fn]
-pub fn int<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn int<'doc>(value: PValue<'doc>) -> Result<PValue<'doc>> {
     let n = match value {
         Value::Int(n) => n,
         Value::Float(x) => x as i64,
-        Value::String(s) => s
-            .parse()
-            .with_context(|| format!("`{s}` is not an integer."))?,
-        _ => anyhow::bail!("expected an int, float, or string"),
+        Value::String(s) => s.parse().with_msg(|| format!("`{s}` is not an integer."))?,
+        _ => bail!("expected an int, float, or string"),
     };
 
     Ok(Value::Int(n))
@@ -174,14 +169,12 @@ pub fn int<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
 /// - `"1.5" | float()` returns `1.5`
 /// - `">_<" | float()` raises an error.
 #[filter_fn]
-pub fn float<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn float<'doc>(value: PValue<'doc>) -> Result<PValue<'doc>> {
     let x = match value {
         Value::Int(n) => n as f64,
         Value::Float(x) => x,
-        Value::String(s) => s
-            .parse()
-            .with_context(|| format!("`{s}` is not a float."))?,
-        _ => anyhow::bail!("expected an int, float, or string"),
+        Value::String(s) => s.parse().with_msg(|| format!("`{s}` is not a float."))?,
+        _ => bail!("expected an int, float, or string"),
     };
 
     Ok(Value::Float(x))
@@ -199,10 +192,13 @@ pub fn float<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
 /// - `[1, 2, 3, 4] | nth(i: 0)` returns `1`
 /// - `[1, 2, 3, 4] | nth(i: 4)` raises an out-of-bounds error.
 #[filter_fn]
-pub fn nth<'doc>(mut value: ListIter<'doc>, i: i64) -> anyhow::Result<PValue<'doc>> {
-    match value.nth(i.try_into().context("negative indices are not supported")?) {
+pub fn nth<'doc>(mut value: ListIter<'doc>, i: i64) -> Result<PValue<'doc>> {
+    match value.nth(
+        i.try_into()
+            .with_msg(|| "negative indices are not supported in `nth({i})`")?,
+    ) {
         Some(x) => Ok(x),
-        None => anyhow::bail!("No element at index {i}"),
+        None => bail!("No element at index {i}"),
     }
 }
 
@@ -217,7 +213,7 @@ pub fn nth<'doc>(mut value: ListIter<'doc>, i: i64) -> anyhow::Result<PValue<'do
 /// - `{a: 1, b: "hello"} | values()` returns `["a", "b"]`
 /// - `{} | values()` returns `[]`
 #[filter_fn]
-pub fn keys<'doc>(value: Structure<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn keys<'doc>(value: Structure<'doc>) -> Result<PValue<'doc>> {
     Ok(Value::Extra(Pipeline::ListIter(Box::new(
         value.into_keys().map(Value::String),
     ))))
@@ -234,7 +230,7 @@ pub fn keys<'doc>(value: Structure<'doc>) -> anyhow::Result<PValue<'doc>> {
 /// - `{a: 1, b: "hello"} | values()` returns `[1, "hello"]`
 /// - `{} | values()` returns `[]`
 #[filter_fn]
-pub fn values<'doc>(value: Structure<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn values<'doc>(value: Structure<'doc>) -> Result<PValue<'doc>> {
     Ok(Value::Extra(Pipeline::ListIter(Box::new(
         value.into_values(),
     ))))
@@ -250,7 +246,7 @@ pub fn values<'doc>(value: Structure<'doc>) -> anyhow::Result<PValue<'doc>> {
 /// - `true | or(with: true)` returns `true`
 /// - `false | or(with: true)` returns `false`
 #[filter_fn]
-pub fn and<'doc>(value: bool, with: bool) -> anyhow::Result<PValue<'doc>> {
+pub fn and<'doc>(value: bool, with: bool) -> Result<PValue<'doc>> {
     Ok(Value::Bool(value && with))
 }
 
@@ -264,7 +260,7 @@ pub fn and<'doc>(value: bool, with: bool) -> anyhow::Result<PValue<'doc>> {
 /// - `true | or(with: false)` returns `true`
 /// - `false | or(with: false)` returns `false`
 #[filter_fn]
-pub fn or<'doc>(value: bool, with: bool) -> anyhow::Result<PValue<'doc>> {
+pub fn or<'doc>(value: bool, with: bool) -> Result<PValue<'doc>> {
     Ok(Value::Bool(value || with))
 }
 
@@ -277,7 +273,7 @@ pub fn or<'doc>(value: bool, with: bool) -> anyhow::Result<PValue<'doc>> {
 /// - `true | not()` returns `false`
 /// - `false | not()` returns `true`
 #[filter_fn]
-pub fn not<'doc>(value: bool) -> anyhow::Result<PValue<'doc>> {
+pub fn not<'doc>(value: bool) -> Result<PValue<'doc>> {
     Ok(Value::Bool(!value))
 }
 
@@ -292,7 +288,7 @@ pub fn not<'doc>(value: bool) -> anyhow::Result<PValue<'doc>> {
 /// - `"my very excellent mother" | split(on: "excellent") returns `["my very ", " mother"]
 /// - `"my very excellent mother" | split(on: "HAMPSTERS") returns ["my very excellent mother"]
 #[filter_fn]
-pub fn split<'doc>(value: Arc<str>, on: Option<Arc<str>>) -> anyhow::Result<PValue<'doc>> {
+pub fn split<'doc>(value: Arc<str>, on: Option<Arc<str>>) -> Result<PValue<'doc>> {
     if let Some(delim) = on {
         Ok(Value::List(
             value
@@ -319,7 +315,7 @@ pub fn split<'doc>(value: Arc<str>, on: Option<Arc<str>>) -> anyhow::Result<PVal
 /// - `2 | eq(to: 2)` is `true`
 /// - `6 | eq(to: 2)` is `false`.
 #[filter_fn]
-pub fn eq<'doc>(value: PValue<'doc>, to: EValue<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn eq<'doc>(value: PValue<'doc>, to: EValue<'doc>) -> Result<PValue<'doc>> {
     Ok(Value::Bool(EValue::from(value) == to))
 }
 
@@ -333,7 +329,7 @@ pub fn eq<'doc>(value: PValue<'doc>, to: EValue<'doc>) -> anyhow::Result<PValue<
 ///
 /// Then `2 | is_in(list: $list)` is `true`, but `6 | is_in(list: $list)` is `false.
 #[filter_fn]
-pub fn is_in<'doc>(value: PValue<'doc>, list: Vec<EValue<'doc>>) -> anyhow::Result<PValue<'doc>> {
+pub fn is_in<'doc>(value: PValue<'doc>, list: Vec<EValue<'doc>>) -> Result<PValue<'doc>> {
     Ok(Value::Bool(list.contains(&value.into())))
 }
 
@@ -359,7 +355,7 @@ pub fn is_in<'doc>(value: PValue<'doc>, list: Vec<EValue<'doc>>) -> anyhow::Resu
 /// - `[null] | truthy()` is `true` (a List containing `null` is nonempty)
 /// - `true | truthy()` is `true`
 #[filter_fn]
-pub fn truthy<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn truthy<'doc>(value: PValue<'doc>) -> Result<PValue<'doc>> {
     let truthy = match value {
         Value::Null => false,
         Value::Float(f) => f != 0.,
@@ -371,6 +367,7 @@ pub fn truthy<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
         Value::Extra(Pipeline::Element(_)) => true,
         Value::Extra(Pipeline::ListIter(mut i)) => i.next().is_some(),
         Value::Extra(Pipeline::StructIter(mut i)) => i.next().is_some(),
+        Value::Extra(_) => unreachable!(),
     };
 
     Ok(Value::Bool(truthy))
@@ -387,7 +384,7 @@ pub fn truthy<'doc>(value: PValue<'doc>) -> anyhow::Result<PValue<'doc>> {
 ///   - Then `$element | text()` is `"Hello......world!"`
 /// - `<img /> | text()` is `""`
 #[filter_fn]
-pub fn text<'doc>(value: scraper::ElementRef<'doc>) -> anyhow::Result<PValue<'doc>> {
+pub fn text<'doc>(value: scraper::ElementRef<'doc>) -> Result<PValue<'doc>> {
     Ok(Value::String(
         value
             .children()

@@ -1,10 +1,10 @@
 use std::{borrow::Cow, collections::BTreeMap, sync::Arc};
 
-use anyhow::Context;
 use execution_mode::ExecutionMode;
 use reqwest::Url;
-
-use value::{EValue, ListIter, PValue};
+use scrapelect_filter_types::{
+    bail, other, Bindings, EValue, ElementContext, ListIter, PValue, Value,
+};
 
 use crate::frontend::{
     ast::{
@@ -16,13 +16,8 @@ use crate::frontend::{
 
 mod execution_mode;
 pub mod filter;
-pub mod value;
 
-pub use filter::{Filter, FilterDyn};
-pub use value::Value;
-
-pub type Error = anyhow::Error;
-pub type Result<T> = core::result::Result<T, Error>;
+pub use scrapelect_filter_types::{Error, MessageExt, Result, WrapExt};
 
 impl<'ast> Element<'ast> {
     #[must_use]
@@ -38,56 +33,6 @@ impl<'ast> Element<'ast> {
 
         buf
     }
-}
-
-#[derive(Debug, Default)]
-pub struct Variables<'a, 'b>(pub BTreeMap<Cow<'a, str>, EValue<'b>>);
-
-#[derive(Debug, Default)]
-pub struct DataVariables<'a>(pub BTreeMap<Cow<'a, str>, Value>);
-
-impl<'a, 'b> From<Variables<'a, 'b>> for DataVariables<'a> {
-    fn from(value: Variables<'a, 'b>) -> Self {
-        Self(
-            value
-                .0
-                .into_iter()
-                .filter_map(|(k, v)| v.into_data().map(|v| (k, v)))
-                .collect(),
-        )
-    }
-}
-
-impl<'a, 'b> From<DataVariables<'a>> for Variables<'a, 'b> {
-    fn from(value: DataVariables<'a>) -> Self {
-        Self(
-            value
-                .0
-                .into_iter()
-                .map(|(k, v)| (k, Value::from_data(v)))
-                .collect(),
-        )
-    }
-}
-
-impl<'ast> From<DataVariables<'ast>> for Value {
-    fn from(value: DataVariables<'ast>) -> Self {
-        Self::Structure(
-            value
-                .0
-                .into_iter()
-                .map(|(k, v)| (Arc::from(&*k), v))
-                .collect(),
-        )
-    }
-}
-
-#[derive(Debug)]
-pub struct ElementContext<'ast, 'ctx> {
-    variables: Variables<'ast, 'ctx>,
-    element: scraper::ElementRef<'ctx>,
-    parent: Option<&'ctx ElementContext<'ast, 'ctx>>,
-    url: Url,
 }
 
 #[derive(Debug)]
@@ -124,7 +69,7 @@ impl<'ast> Interpreter<'ast> {
         &self,
         root_url: Url,
         head: Option<AstRef<'ast, StatementList<'ast>>>,
-    ) -> Result<DataVariables<'ast>> {
+    ) -> Result<Bindings<'ast>> {
         let html = self.get_html(&root_url).await?;
         self.interpret_block(html.root_element(), head, None, root_url)
             .await
@@ -137,14 +82,14 @@ impl<'ast> Interpreter<'ast> {
                 .get(url.clone())
                 .send()
                 .await
-                .context("Error sending HTTP request")?
+                .with_msg(|| format!("request to `{url}` failed"))?
                 .text()
                 .await
-                .context("Error getting HTTP body text")?,
+                .with_msg(|| format!("retrieving body from `{url} failed"))?,
             "file" => tokio::fs::read_to_string(url.path())
                 .await
-                .with_context(|| format!("Error reading from file `{}`", url.path()))?,
-            other => anyhow::bail!("unknown URL scheme `{other}`"),
+                .with_msg(|| format!("reading from file `{}` failed", url.path()))?,
+            other => bail!("unknown URL scheme `{other}`"),
         };
 
         Ok(scraper::Html::parse_document(&text))
@@ -156,19 +101,14 @@ impl<'ast> Interpreter<'ast> {
         statements: Option<AstRef<'ast, StatementList<'ast>>>,
         parent: Option<&ElementContext<'ast, '_>>,
         url: Url,
-    ) -> Result<DataVariables<'ast>> {
-        let mut ctx = ElementContext {
-            element,
-            parent,
-            variables: Variables::default(),
-            url,
-        };
+    ) -> Result<Bindings<'ast>> {
+        let mut ctx = ElementContext::new(element, parent, url);
 
         for statement in self.ast.flatten(statements) {
             self.interpret_statement(&statement.value, &mut ctx).await?;
         }
 
-        Ok(ctx.variables.into())
+        Ok(ctx.bindings.into_data())
     }
 
     async fn interpret_statement(
@@ -176,65 +116,81 @@ impl<'ast> Interpreter<'ast> {
         statement: &Statement<'ast>,
         ctx: &mut ElementContext<'ast, '_>,
     ) -> Result<()> {
-        let value = match &statement.value {
-            RValue::Leaf(l) => ctx.leaf_to_value(l)?,
-            RValue::Element(e) => Value::from_data(self.interpret_element(e, ctx).await?),
+        let inner = || async move {
+            let value = match &statement.value {
+                RValue::Leaf(l) => leaf_to_value(ctx, l)?,
+                RValue::Element(e) => Value::from_data(self.interpret_element(e, ctx).await?),
+            };
+
+            let value =
+                self.apply_filters(value, self.ast.flatten(statement.filters).into_iter(), ctx)?;
+            ctx.set(Cow::Borrowed(statement.id), value)?;
+
+            Ok(())
         };
 
-        let value =
-            self.apply_filters(value, self.ast.flatten(statement.filters).into_iter(), ctx)?;
-        ctx.set_var(Cow::Borrowed(statement.id), value)?;
-
-        Ok(())
+        inner().await.wrap_with(|| {
+            format!(
+                "note: occurred while evaluating binding `{}`.",
+                statement.id
+            )
+        })
     }
 
     async fn interpret_element(
         &self,
         element: &Element<'ast>,
         ctx: &mut ElementContext<'ast, '_>,
-    ) -> anyhow::Result<Value> {
-        let html;
+    ) -> Result<Value> {
+        let selector_str = element.to_selector_str(self.ast);
+        let selector_str = &selector_str;
+        let inner = || async move {
+            let html;
 
-        let (root_element, url) = if let Some(url) = &element.url {
-            let url: Arc<str> = self.eval_inline(url, ctx)?.try_unwrap()?;
-            let url: Url = match url.parse() {
-                Ok(url) => url,
-                Err(url::ParseError::RelativeUrlWithoutBase) => ctx
-                    .url
-                    .join(&url)
-                    .with_context(|| format!("`{url} is not a valid relative URL"))?,
-                Err(e) => anyhow::bail!("`{url}` is not a valid URL: {e}"),
+            let (root_element, url) = if let Some(url) = &element.url {
+                let url: Arc<str> = self.eval_inline(url, ctx)?.try_unwrap()?;
+                let url: Url = match url.parse() {
+                    Ok(url) => url,
+                    Err(url::ParseError::RelativeUrlWithoutBase) => ctx
+                        .url
+                        .join(&url)
+                        .with_msg(|| format!("`{url} is not a valid relative URL"))?,
+                    Err(e) => bail!(@e, "`{url}` is not a valid URL"),
+                };
+                html = self.get_html(&url).await?;
+                (html.root_element(), url)
+            } else {
+                (ctx.element, ctx.url.clone())
             };
-            html = self.get_html(&url).await?;
-            (html.root_element(), url)
-        } else {
-            (ctx.element, ctx.url.clone())
+
+            let selector = scraper::Selector::parse(selector_str).map_err(|e| {
+                other!(
+                    "failed to parse selector `{selector_str}`.
+                This is a bug in `scrapelect`, please report it.
+                `selectors` error: {e}"
+                )
+            })?;
+
+            let selection = root_element.select(&selector);
+
+            let element_refs = ExecutionMode::hinted_from_iter(element.qualifier, selection)?;
+
+            let values =
+                futures::future::try_join_all(element_refs.into_iter().map(|element_ref| {
+                    self.interpret_block(element_ref, element.statements, Some(ctx), url.clone())
+                }))
+                .await?;
+
+            Ok(ExecutionMode::hinted_from_iter(
+                element.qualifier,
+                values.into_iter().map(Bindings::into_value),
+            )?
+            .into_value())
         };
 
-        let selector_str = element.to_selector_str(self.ast);
-
-        let selector = scraper::Selector::parse(&selector_str).map_err(|e| {
-            anyhow::anyhow!(
-                "Selector parse failed: {e}.  This is a program error. Selector is `{selector_str}`",
-            )
-        })?;
-
-        let selection = root_element.select(&selector);
-
-        let element_refs = ExecutionMode::hinted_from_iter(element.qualifier, selection)?;
-
-        let values = futures::future::try_join_all(element_refs.into_iter().map(|element_ref| {
-            self.interpret_block(element_ref, element.statements, Some(ctx), url.clone())
-        }))
-        .await?;
-
-        Ok(
-            ExecutionMode::hinted_from_iter(
-                element.qualifier,
-                values.into_iter().map(Value::from),
-            )?
-            .into_value(),
-        )
+        inner()
+            .await
+            .wrap_with(|| format!("note: occurred while evaluating element block `{selector_str}`"))
     }
 
     fn apply_filters<'ctx>(
@@ -259,17 +215,13 @@ impl<'ast> Interpreter<'ast> {
                 ast::Filter::Select(select) => qualify(filter.qualifier, value, |value| {
                     let ls: ListIter = value.try_unwrap()?;
 
-                    let mut inner_scope = ElementContext {
-                        element: ctx.element,
-                        variables: Variables::default(),
-                        parent: Some(ctx),
-                        url: ctx.url.clone(),
-                    };
+                    let mut inner_scope =
+                        ElementContext::new(ctx.element, Some(ctx), ctx.url.clone());
 
                     Ok(Value::List(
                         ls.map(|value| {
                             let value = EValue::from(value);
-                            inner_scope.set_var(select.name.into(), value.clone())?;
+                            inner_scope.set(select.name.into(), value.clone())?;
 
                             let keep: bool = self
                                 .eval_inline(&select.value, &mut inner_scope)?
@@ -291,7 +243,7 @@ impl<'ast> Interpreter<'ast> {
         ctx: &mut ElementContext<'ast, 'ctx>,
     ) -> Result<EValue<'ctx>> {
         self.apply_filters(
-            ctx.leaf_to_value(&inline.value)?,
+            leaf_to_value(ctx, &inline.value)?,
             self.ast.flatten(inline.filters).into_iter(),
             ctx,
         )
@@ -318,38 +270,15 @@ where
     }
 }
 
-impl<'ast, 'ctx> ElementContext<'ast, 'ctx> {
-    pub fn get_var(&self, id: &str) -> anyhow::Result<EValue<'ctx>> {
-        match id {
-            "element" => Ok(self.element.into()),
-            var => match self.variables.0.get(var) {
-                Some(var) => Ok(var.clone()),
-                None => self
-                    .parent
-                    .with_context(|| format!("Unknown variable `{var}`"))?
-                    .get_var(id),
-            },
-        }
-    }
-
-    pub fn set_var(&mut self, name: Cow<'ast, str>, value: EValue<'ctx>) -> anyhow::Result<()> {
-        match &*name {
-            immutable @ "element" => {
-                anyhow::bail!("Can't assign to immutable variable `{immutable}`")
-            }
-            _ => self.variables.0.insert(name, value),
-        };
-
-        Ok(())
-    }
-
-    pub fn leaf_to_value(&self, value: &Leaf<'ast>) -> anyhow::Result<EValue<'ctx>> {
-        match value {
-            Leaf::Float(x) => Ok(Value::Float(*x)),
-            Leaf::Int(n) => Ok(Value::Int(*n)),
-            Leaf::String(s) => Ok(Value::String(Arc::from(&**s))),
-            Leaf::Var(id) => self.get_var(id),
-        }
+pub fn leaf_to_value<'ast, 'ctx>(
+    ctx: &ElementContext<'ast, 'ctx>,
+    value: &Leaf<'ast>,
+) -> Result<EValue<'ctx>> {
+    match value {
+        Leaf::Float(x) => Ok(Value::Float(*x)),
+        Leaf::Int(n) => Ok(Value::Int(*n)),
+        Leaf::String(s) => Ok(Value::String(Arc::from(&**s))),
+        Leaf::Var(id) => ctx.get(id),
     }
 }
 
@@ -357,7 +286,9 @@ impl<'ast, 'ctx> ElementContext<'ast, 'ctx> {
 pub async fn interpret_string_harness(
     program: &'static str,
     html: &'static str,
-) -> Result<DataVariables<'static>> {
+) -> anyhow::Result<Bindings<'static>> {
+    use anyhow::Context;
+
     let (ast, head) = crate::frontend::Parser::new(program).parse()?;
     let html = scraper::Html::parse_document(html);
     let interpreter = Interpreter::new(Box::leak(Box::new(ast)));
@@ -370,6 +301,7 @@ pub async fn interpret_string_harness(
             "file:///tmp/inmemory.html".parse().expect("URL parse"),
         )
         .await
+        .context("Error running interpreter")
 }
 
 #[cfg(test)]

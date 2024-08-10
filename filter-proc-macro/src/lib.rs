@@ -4,7 +4,7 @@ use syn::{
     punctuated::Punctuated, Data, DeriveInput, GenericParam, Lifetime, LifetimeParam, Pat, PatIdent,
 };
 
-/// Procedural macro to derive [`scrapelect::interpreter::filter::Args`] on a structure.
+/// Procedural macro to derive [`scrapelect_filter_types::Args`] on a structure.
 ///
 /// If you need to use the value lifetime, use `'doc`, otherwise the generator will get confused.
 ///
@@ -69,16 +69,16 @@ fn derive_args_impl(ast: &DeriveInput) -> TokenStream {
     });
 
     quote! {
-        impl #impl_generics crate::interpreter::filter::Args<'doc> for #name #ty_generics #where_clause {
+        impl #impl_generics scrapelect_filter_types::Args<'doc> for #name #ty_generics #where_clause {
             fn try_deserialize<'ast>(
-                mut args: ::std::collections::BTreeMap<&'ast str, crate::interpreter::value::EValue<'doc>>
-            ) -> anyhow::Result<Self> {
+                mut args: ::std::collections::BTreeMap<&'ast str, scrapelect_filter_types::EValue<'doc>>
+            ) -> scrapelect_filter_types::Result<Self> {
                 #(
-                    let #field_extract = crate::interpreter::value::TryFromValue::try_from_option(args.remove(stringify!(#field_extract)))?;
+                    let #field_extract = scrapelect_filter_types::TryFromValue::try_from_option(args.remove(stringify!(#field_extract)))?;
                 )*
 
                 if !args.is_empty() {
-                    anyhow::bail!("Found unexpected arguments {args:?}");
+                    scrapelect_filter_types::bail!("found unexpected arguments {args:?}");
                 }
 
                 Ok(Self {
@@ -103,7 +103,7 @@ fn derive_args_impl(ast: &DeriveInput) -> TokenStream {
 ///
 /// Note that patterns are not supported beyond `(mut)? x: T`
 ///
-/// The return type must be `crate::interpreter::Result<Value<'doc>>`
+/// The return type must be `scrapelect::interpreter::Result<Value<'doc>>`
 ///
 /// # Panics
 /// Panics if the token stream is not valid or the function signature is not as specified.
@@ -155,8 +155,8 @@ pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
         #inner
 
         #[cfg(not(any(doc, feature = "filter_doc")))]
-        #vis fn #name() -> impl crate::interpreter::filter::Filter {
-            #[derive(Debug, crate::interpreter::filter::Args)]
+        #vis fn #name() -> impl scrapelect_filter_types::Filter {
+            #[derive(Debug, scrapelect_filter_types::Args)]
             pub struct Args<'doc> {
                 _marker: core::marker::PhantomData<&'doc ()>,
                 #(#arg: #ty),*
@@ -165,7 +165,7 @@ pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
             #[derive(Debug)]
             pub struct Filter;
 
-            impl crate::interpreter::filter::Filter for Filter {
+            impl scrapelect_filter_types::Filter for Filter {
                 type Args<'doc> = Args<'doc>;
                 type Value<'doc> = #vty;
 
@@ -173,8 +173,8 @@ pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     #value: Self::Value<'ctx>,
                     args: Self::Args<'ctx>,
                     #[allow(unused)]
-                    ctx: &mut crate::interpreter::ElementContext<'_, 'ctx>
-                ) -> anyhow::Result<crate::interpreter::value::PValue<'ctx>> {
+                    ctx: &mut scrapelect_filter_types::ElementContext<'_, 'ctx>
+                ) -> scrapelect_filter_types::Result<scrapelect_filter_types::PValue<'ctx>> {
                     // we can't elide the 'doc lifetime here because it needs to
                     // also be in the struct, unless we make a smarter macro
                     // (i.e., lifetime-aware)
