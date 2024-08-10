@@ -11,4 +11,4 @@ description = "Types for making scrapelect Filters"
 scraper = "0.19"
 serde = { version = "1.0", features = ["derive", "rc"] }
 url = "2.5"
-scrapelect-filter-proc-macro = { version = "0.3.2", path = "../filter-proc-macro" }
+scrapelect-filter-proc-macro = { version = "0.4.0", path = "../filter-proc-macro" }

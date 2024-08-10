@@ -1,6 +1,6 @@
 [package]
 name = "scrapelect"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 authors = ["Max Carr <m@mcarr.one>"]
 license = "Apache-2.0 OR MIT"
@@ -14,7 +14,7 @@ reqwest = "0.12.5"
 scraper = "0.19"
 tokio = { version = "1.38.0", features = ["full"] }
 scrapelect-filter-types = { path = "./filter-types", version = "0.1.0" }
-scrapelect-filter-proc-macro = { path = "./filter-proc-macro", version = "0.3.0" }
+scrapelect-filter-proc-macro = { path = "./filter-proc-macro", version = "0.4.0" }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive", "rc"] }
 futures = "0.3"

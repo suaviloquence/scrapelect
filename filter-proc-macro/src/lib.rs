@@ -103,7 +103,7 @@ fn derive_args_impl(ast: &DeriveInput) -> TokenStream {
 ///
 /// Note that patterns are not supported beyond `(mut)? x: T`
 ///
-/// The return type must be `scrapelect::interpreter::Result<Value<'doc>>`
+/// The return type must be `scrapelect_filter_types::Result<PValue<'doc>>`
 ///
 /// # Panics
 /// Panics if the token stream is not valid or the function signature is not as specified.
