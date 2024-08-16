@@ -23,8 +23,8 @@ use std::{
 };
 
 use scrapelect_filter_types::{
-    bail, filter_fn, EValue, ElementContext, FilterDyn, ListIter, MessageExt, PValue, Pipeline,
-    Result, Value,
+    bail, filter_fn, EValue, ElementContext, FilterDyn, ListIter, MessageExt, Number, PValue,
+    Pipeline, Result, Value,
 };
 
 type Structure<'doc> = BTreeMap<Arc<str>, PValue<'doc>>;
@@ -388,6 +388,60 @@ pub fn text<'doc>(value: scraper::ElementRef<'doc>) -> Result<PValue<'doc>> {
             .collect::<String>()
             .into(),
     ))
+}
+
+/// Signature: `value: Number | add(to: Number): Number`
+///
+/// Adds the two numbers together.  The two numbers must be the same
+/// type (Float or Int), and the return type will also be that type.
+///
+/// # Examples
+/// - `1 | add(to: 2)` returns `3`
+/// - `0.5 | add(to: 1.5)` returns `2.0`
+/// - `1 | add(to: 1.5)` raises an error because of the type mismatch.
+#[filter_fn]
+pub fn add<'doc>(value: Number, to: Number) -> Result<PValue<'doc>> {
+    match (value, to) {
+        (Number::Int(a), Number::Int(b)) => Ok(Value::Int(a + b)),
+        (Number::Float(a), Number::Float(b)) => Ok(Value::Float(a + b)),
+        (a, b) => bail!("Type mismatch when adding {a:?} + {b:?}"),
+    }
+}
+
+/// Signature: `value: Number | sub(by: Number): Number`
+///
+/// Subtracts `by` from `value`. The two numbers must be the same
+/// type (Float or Int), and the return type will also be that type.
+///
+/// # Examples
+/// - `1 | sub(by: 2)` returns `-1`
+/// - `0.5 | sub(by: 1.5)` returns `-1.0`
+/// - `1 | sub(by: 1.5)` raises an error because of the type mismatch.
+#[filter_fn]
+pub fn sub<'doc>(value: Number, by: Number) -> Result<PValue<'doc>> {
+    match (value, by) {
+        (Number::Int(a), Number::Int(b)) => Ok(Value::Int(a - b)),
+        (Number::Float(a), Number::Float(b)) => Ok(Value::Float(a - b)),
+        (a, b) => bail!("Type mismatch when subtracting {a:?} - {b:?}"),
+    }
+}
+
+/// Signature: `value: Number | mult(by: Number): Number`
+///
+/// Multiplies `value * by`. The two numbers must be the same
+/// type (Float or Int), and the return type will also be that type.
+///
+/// # Examples
+/// - `1 | mult(by: 2)` returns `2`
+/// - `0.5 | mult(by: 1.5)` returns `0.75``
+/// - `1 | mult(by: 1.5)` raises an error because of the type mismatch.
+#[filter_fn]
+pub fn mult<'doc>(value: Number, by: Number) -> Result<PValue<'doc>> {
+    match (value, by) {
+        (Number::Int(a), Number::Int(b)) => Ok(Value::Int(a * b)),
+        (Number::Float(a), Number::Float(b)) => Ok(Value::Float(a * b)),
+        (a, b) => bail!("Type mismatch when subtracting {a:?} * {b:?}"),
+    }
 }
 
 macro_rules! build_map {

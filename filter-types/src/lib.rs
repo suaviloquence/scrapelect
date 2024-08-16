@@ -34,5 +34,5 @@ pub use context::{Bindings, ElementContext};
 pub use error::{Error, MessageExt, Result, WrapExt};
 pub use filter::{filter_fn, Args, Filter, FilterDyn};
 pub use value::{
-    Data, EValue, Element, ListIter, PValue, Pipeline, StructIter, TryFromValue, Value,
+    Data, EValue, Element, ListIter, Number, PValue, Pipeline, StructIter, TryFromValue, Value,
 };

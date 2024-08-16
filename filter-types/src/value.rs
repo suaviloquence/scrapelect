@@ -104,6 +104,44 @@ generate_impls! {
     String(Arc<str>),
 }
 
+/// Helper enum to represent any numeric type that implements [`TryFromValue`].
+///
+/// Use [`cast_to_int`](Self::cast_to_int) or [`cast_to_float`](Self;:cast_to_float)
+/// to (potentially cast) this value to a wanted specific type.
+#[derive(Debug, Clone, Copy)]
+pub enum Number {
+    Float(f64),
+    Int(i64),
+}
+
+impl Number {
+    #[must_use]
+    pub fn cast_to_int(self) -> i64 {
+        match self {
+            Self::Float(f) => f as i64,
+            Self::Int(i) => i,
+        }
+    }
+
+    #[must_use]
+    pub fn cast_to_float(self) -> f64 {
+        match self {
+            Self::Float(f) => f,
+            Self::Int(i) => i as f64,
+        }
+    }
+}
+
+impl TryFromData for Number {
+    fn try_from_data(value: Value) -> Result<Self> {
+        match value {
+            Value::Int(i) => Ok(Self::Int(i)),
+            Value::Float(f) => Ok(Self::Float(f)),
+            other => Err(other!("Expected a numeric type, got `{other}`")),
+        }
+    }
+}
+
 impl<X> Value<X> {
     /// Convert from a `Value<Data>` (no extensions) to `Self`.  This is always
     /// possible because `Value<Data>` is a subset of `Value<X>`.
