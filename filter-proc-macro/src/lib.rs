@@ -113,6 +113,7 @@ pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let inner = func.clone();
     let name = func.sig.ident;
     let vis = func.vis;
+    let attrs = func.attrs;
 
     let (value, args) = func
         .sig
@@ -150,11 +151,7 @@ pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
         .chain(ctx.clone().into_iter().map(|x| quote! {#x }));
 
     quote! {
-        #[doc(cfg(feature = "filter_doc"))]
-        #[cfg(any(doc, feature = "filter_doc"))]
-        #inner
-
-        #[cfg(not(any(doc, feature = "filter_doc")))]
+        #(#attrs)*
         #vis fn #name() -> impl scrapelect_filter_types::Filter {
             #[derive(Debug, scrapelect_filter_types::Args)]
             pub struct Args<'doc> {

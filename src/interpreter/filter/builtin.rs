@@ -1,25 +1,21 @@
-#![cfg_attr(
-    feature = "filter_doc",
-    doc = "Documentation for `scrapelect`'s built-in filters.
-
-Conventions used:
-
-- Signature of a filter: `value: T | name(arg_1: U_1, ...): V` means that `name` is a filter
-    that takes a *pipeline value* of type `T`, has arguments `arg_i` of type `U_i`, and returns
-    a value of type `V`
-  - Specifying an arg type with a question mark (e.g., `value: Value | dbg(msg: String?): Value`)
-    means that that argument (e.g., `msg`) is *optional* and can be omitted.
-- List shorthand: a `List` is represented as `[a_0, a_1, a_2, ..., a_n]` to mean that
-its elements are `a_0, ..., a_n` in that order.  Indexing starts at 0.  This syntax is currently
-not valid `scrapelect`, but it is useful to express in documentation.
-- Structure shorthand: similarly, a structure is represented as { key_1: value_1, key_2: value_2, ... } to
-indicate that it has keys that correspond to the given values. This is not valid `scrapelect`,
-but it is useful in documentation.
-- Element shorthand: an inline HTML element (e.g., `<a href=\"github.com/suaviloquence/scrapelect\">Link text</a>`)
-   is also not valid `scrapelect`, but is useful to demonstrate how `Element`s are used
-   in filters.
-"
-)]
+//! Documentation for `scrapelect`'s built-in filters.
+//!
+//! Conventions used:
+//!
+//! - Signature of a filter: `value: T | name(arg_1: U_1, ...): V` means that `name` is a filter
+//!     that takes a *pipeline value* of type `T`, has arguments `arg_i` of type `U_i`, and returns
+//!     a value of type `V`
+//!   - Specifying an arg type with a question mark (e.g., `value: Value | dbg(msg: String?): Value`)
+//!     means that that argument (e.g., `msg`) is *optional* and can be omitted.
+//! - List shorthand: a `List` is represented as `[a_0, a_1, a_2, ..., a_n]` to mean that
+//! its elements are `a_0, ..., a_n` in that order.  Indexing starts at 0.  This syntax is currently
+//! not valid `scrapelect`, but it is useful to express in documentation.
+//! - Structure shorthand: similarly, a structure is represented as { key_1: value_1, key_2: value_2, ... } to
+//! indicate that it has keys that correspond to the given values. This is not valid `scrapelect`,
+//! but it is useful in documentation.
+//! - Element shorthand: an inline HTML element (e.g., `<a href=\"github.com/suaviloquence/scrapelect\">Link text</a>`)
+//!    is also not valid `scrapelect`, but is useful to demonstrate how `Element`s are used
+//!    in filters.
 
 use std::{
     collections::BTreeMap,
@@ -405,7 +401,6 @@ macro_rules! build_map {
     };
 }
 
-#[cfg(not(feature = "filter_doc"))]
 pub static FILTERS: LazyLock<BTreeMap<&'static str, Box<dyn FilterDyn + Send + Sync>>> =
     LazyLock::new(|| {
         build_map! {
