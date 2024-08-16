@@ -389,7 +389,7 @@ mod tests {
             panic!("got {output:?}, expected a: [ .. ]");
         };
 
-        let Some(Structure(a)) = a.get(0) else {
+        let Some(Structure(a)) = a.first() else {
             panic!("got {output:?}");
         };
 

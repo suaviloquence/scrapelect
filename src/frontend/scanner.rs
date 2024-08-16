@@ -171,27 +171,29 @@ impl<'a> Scanner<'a> {
                     .as_str(),
             })
             .max_by_key(|x| x.value.len())
-            .map(|lx| {
+            .map_or(
                 (
                     Span {
                         line: self.line,
                         start: self.idx,
-                        end: self.idx + lx.value.len(),
+                        end: self.idx + 1,
                     },
-                    lx,
-                )
-            })
-            .unwrap_or((
-                Span {
-                    line: self.line,
-                    start: self.idx,
-                    end: self.idx + 1,
+                    Lexeme {
+                        token: Token::Unknown,
+                        value: &self.slice[self.idx..=self.idx],
+                    },
+                ),
+                |lx| {
+                    (
+                        Span {
+                            line: self.line,
+                            start: self.idx,
+                            end: self.idx + lx.value.len(),
+                        },
+                        lx,
+                    )
                 },
-                Lexeme {
-                    token: Token::Unknown,
-                    value: &self.slice[self.idx..=self.idx],
-                },
-            ))
+            )
     }
 
     pub fn eat_token(&mut self) -> (Span, Lexeme<'a>) {

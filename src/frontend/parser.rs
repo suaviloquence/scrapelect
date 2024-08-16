@@ -479,7 +479,7 @@ mod tests {
 
                 };
             };"#;
-        let parser = Parser::new(&string);
+        let parser = Parser::new(string);
         let (arena, r) = parser.parse().expect("parsing failed");
 
         let stmts = arena.flatten(r);

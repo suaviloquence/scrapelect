@@ -101,7 +101,7 @@ impl<'a> Grammar<'a> {
             });
         }
 
-        if let Some(x) = rules.get(0) {
+        if let Some(x) = rules.first() {
             let nt = x.nonterminal;
             rules
                 .iter_mut()
@@ -282,7 +282,7 @@ impl<'a> Grammar<'a> {
 
         predict_sets
             .into_iter()
-            .map(|x| x.into_iter().filter_map(|x| x).collect())
+            .map(|x| x.into_iter().flatten().collect())
             .collect()
     }
 
