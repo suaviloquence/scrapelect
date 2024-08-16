@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ "dev" ]
+    branches: ["dev"]
   pull_request:
-    branches: [ "dev" ]
+    branches: ["dev"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,25 +14,25 @@ jobs:
     name: run cargo tests
     runs-on: ubuntu-latest
     steps:
-    - name: check out branch
-      uses: actions/checkout@v4
-    - name: set up rust
-      uses: actions-rust-lang/setup-rust-toolchain@v1
-    - name: cargo build
-      run: cargo build --verbose
-    - name: cargo test
-      run: cargo test --verbose
+      - name: check out branch
+        uses: actions/checkout@v4
+      - name: set up rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: cargo build
+        run: cargo build --verbose
+      - name: cargo test
+        run: cargo test --verbose
   lint:
     name: verify formatting and lints
     runs-on: ubuntu-latest
     steps:
-    - name: check out branch
-      uses: actions/checkout@v4
-    - name: set up rust
-      uses: actions-rust-lang/setup-rust-toolchain@v1
-      with:
-        components: rustfmt, clippy
-    - name: verify formatting
-      uses: actions-rust-lang/rustfmt@v1
-    - name: run clippy
-      run: cargo clippy -- --deny clippy::all --warn clippy::pedantic --warn warnings
+      - name: check out branch
+        uses: actions/checkout@v4
+      - name: set up rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt, clippy
+      - name: verify formatting
+        uses: actions-rust-lang/rustfmt@v1
+      - name: run clippy
+        run: cargo clippy --all-targets -- --deny clippy::all --warn clippy::pedantic --warn warnings
