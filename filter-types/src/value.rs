@@ -123,6 +123,7 @@ impl<X> Value<X> {
                     .map(|(k, v)| (k, Self::from_data(v)))
                     .collect(),
             ),
+            #[allow(unreachable_patterns)]
             Extra(never) => match never.0 {},
         }
     }
