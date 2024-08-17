@@ -23,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
 
     let parser = Parser::new(&pgm);
 
-    let (ast, head) = parser
+    let ast = parser
         .parse()
         .with_context(|| format!("parse error in {filename}:"))?;
 
@@ -33,7 +33,6 @@ async fn main() -> anyhow::Result<()> {
         .interpret(
             url.parse()
                 .with_context(|| format!("Couldn't parse `{url}` into a URL"))?,
-            head,
         )
         .await?;
 

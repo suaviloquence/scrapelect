@@ -2,10 +2,9 @@ use core::fmt;
 use std::borrow::Cow;
 
 use super::{
-    arena::Arena,
     ast::{
-        ArgList, Ast, AstRef, Element, Filter, FilterCall, FilterList, FilterSelect, Inline, Leaf,
-        Qualifier, RValue, Selector, SelectorCombinator, SelectorList, Statement, StatementList,
+        Arg, Element, Filter, FilterCall, FilterSelect, FilterType, Inline, Leaf, NamedSelector,
+        NonEmpty, Qualifier, RValue, Selector, SelectorCombinator, SelectorFragment, Statement,
     },
     scanner::{Lexeme, Scanner, Span, Token},
 };
@@ -13,7 +12,6 @@ use super::{
 #[derive(Debug)]
 pub struct Parser<'a> {
     scanner: Scanner<'a>,
-    arena: Arena<Ast<'a>>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,35 +66,27 @@ impl<'a> Parser<'a> {
     pub const fn new(input: &'a str) -> Self {
         Self {
             scanner: Scanner::new(input),
-            arena: Arena::new(),
         }
     }
 
-    pub fn parse(mut self) -> Result<(Arena<Ast<'a>>, Option<AstRef<'a, StatementList<'a>>>)> {
-        let r = match self.parse_statement_list() {
-            Ok(r) => r,
-            Err(e) => {
-                return Err(e);
-            }
-        };
+    pub fn parse(mut self) -> Result<Vec<Statement<'a>>> {
+        let statements = self.parse_statement_list()?;
         self.try_eat(Token::Eof)?;
-        Ok((self.arena, r))
+        Ok(statements)
     }
 
-    pub fn parse_statement_list(&mut self) -> Result<Option<AstRef<'a, StatementList<'a>>>> {
-        let (_, lx) = self.scanner.peek_non_whitespace();
-
-        if lx.token == Token::Id {
-            let statement = self.parse_statement()?;
-            let next = self.parse_statement_list()?;
-
-            Ok(Some(
-                self.arena
-                    .insert_variant(StatementList::new(statement, next)),
-            ))
-        } else {
-            Ok(None)
+    pub fn parse_statement_list(&mut self) -> Result<Vec<Statement<'a>>> {
+        let mut vec = Vec::new();
+        while let (
+            _,
+            Lexeme {
+                token: Token::Id, ..
+            },
+        ) = self.scanner.peek_non_whitespace()
+        {
+            vec.push(self.parse_statement()?);
         }
+        Ok(vec)
     }
 
     fn parse_statement(&mut self) -> Result<Statement<'a>> {
@@ -154,8 +144,7 @@ impl<'a> Parser<'a> {
 
     fn parse_element(&mut self) -> Result<Element<'a>> {
         let url = self.parse_maybe_url()?;
-        let selector_head = self.parse_selector()?;
-        let selectors = self.parse_selector_list()?;
+        let selector = self.parse_selector()?;
 
         self.try_eat(Token::BraceOpen)?;
 
@@ -167,8 +156,7 @@ impl<'a> Parser<'a> {
 
         Ok(Element {
             url,
-            selector_head,
-            selectors,
+            selector,
             qualifier,
             statements,
         })
@@ -196,10 +184,7 @@ impl<'a> Parser<'a> {
         match lx.token {
             Token::Less => self.parse_inline(),
             Token::Dollar | Token::Int | Token::Float | Token::String => {
-                self.parse_leaf().map(|value| Inline {
-                    value,
-                    filters: None,
-                })
+                self.parse_leaf().map(Inline::from)
             }
             _ => Err(ParseError::unexpected(
                 vec![
@@ -215,7 +200,21 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_selector_list(&mut self) -> Result<Option<AstRef<'a, SelectorList<'a>>>> {
+    fn parse_selector(&mut self) -> Result<Selector<'a>> {
+        let head = self.parse_selector_fragment()?;
+
+        let mut combinators = Vec::new();
+
+        while let Some(combinator) = self.parse_selector_combinator()? {
+            let fragment = self.parse_selector_fragment()?;
+
+            combinators.push((combinator, fragment));
+        }
+
+        Ok(Selector { head, combinators })
+    }
+
+    fn parse_selector_combinator(&mut self) -> Result<Option<SelectorCombinator>> {
         let mut item = self.scanner.peek_non_comment();
         if item.1.token == Token::Whitespace {
             self.scanner.eat_token();
@@ -230,93 +229,95 @@ impl<'a> Parser<'a> {
 
         let (span, lx) = item;
 
-        let sel = match lx.token {
-            Token::BraceOpen | Token::ParenOpen => return Ok(None),
+        match lx.token {
+            Token::BraceOpen | Token::ParenOpen => Ok(None),
             // invariant: peek_next_whitespace is one of Id | Hash | Dot | Star
             // whitespace is eaten in the above block.
-            Token::Whitespace => SelectorCombinator::Descendent(self.parse_selector()?),
+            Token::Whitespace => Ok(Some(SelectorCombinator::Descendent)),
             Token::Greater => {
                 self.scanner.eat_token();
-                SelectorCombinator::Child(self.parse_selector()?)
+                Ok(Some(SelectorCombinator::Child))
             }
             Token::Plus => {
                 self.scanner.eat_token();
-                SelectorCombinator::NextSibling(self.parse_selector()?)
+                Ok(Some(SelectorCombinator::NextSibling))
             }
             Token::Tilde => {
                 self.scanner.eat_token();
-                SelectorCombinator::SubsequentSibling(self.parse_selector()?)
-            }
-            Token::Hash | Token::Dot | Token::Id | Token::Star => {
-                SelectorCombinator::And(self.parse_selector()?)
-            }
-            _ => {
-                return Err(ParseError::unexpected(
-                    vec![
-                        Token::Whitespace,
-                        Token::Greater,
-                        Token::Plus,
-                        Token::Tilde,
-                        Token::Hash,
-                        Token::Dot,
-                        Token::Id,
-                        Token::Star,
-                    ],
-                    lx,
-                    span,
-                ))
-            }
-        };
-
-        let itm = SelectorList::new(sel, self.parse_selector_list()?);
-
-        Ok(Some(self.arena.insert_variant(itm)))
-    }
-
-    fn parse_selector(&mut self) -> Result<Selector<'a>> {
-        let (span, lx) = self.scanner.peek_non_whitespace();
-        match lx.token {
-            Token::Dot => {
-                self.scanner.eat_token();
-                self.try_eat(Token::Id).map(|lx| Selector::Class(lx.value))
-            }
-            Token::Hash => {
-                self.scanner.eat_token();
-                self.try_eat(Token::Id).map(|lx| Selector::Id(lx.value))
-            }
-            Token::Id => {
-                self.scanner.eat_token();
-                Ok(Selector::Tag(lx.value))
-            }
-            Token::Star => {
-                self.scanner.eat_token();
-                Ok(Selector::Any)
+                Ok(Some(SelectorCombinator::SubsequentSibling))
             }
             _ => Err(ParseError::unexpected(
-                vec![Token::Dot, Token::Hash, Token::Id, Token::Star],
+                vec![Token::Whitespace, Token::Greater, Token::Plus, Token::Tilde],
                 lx,
                 span,
             )),
         }
     }
 
-    fn parse_filter_list(&mut self) -> Result<Option<AstRef<'a, FilterList<'a>>>> {
-        let (_, lx) = self.scanner.peek_non_whitespace();
-        if lx.token == Token::Pipe {
-            self.scanner.eat_token();
-            let filter = self.parse_filter()?;
-            let next = self.parse_filter_list()?;
-            let qualifier = self.parse_qualifier()?;
-            let r = self
-                .arena
-                .insert_variant(FilterList::new(filter, qualifier, next));
-            Ok(Some(r))
-        } else {
-            Ok(None)
+    fn parse_selector_fragment(&mut self) -> Result<SelectorFragment<'a>> {
+        let (span, lx) = self.scanner.peek_non_whitespace();
+
+        match lx.token {
+            Token::Star => Ok(SelectorFragment::Any),
+            Token::Dot | Token::Id | Token::Hash => {
+                let named_selector = self.parse_named_selector()?;
+                let mut selector = NonEmpty::from_one(named_selector);
+
+                while let Token::Dot | Token::Id | Token::Hash =
+                    self.scanner.peek_non_whitespace().1.token
+                {
+                    selector.push(self.parse_named_selector()?);
+                }
+
+                Ok(SelectorFragment::Named(selector))
+            }
+            _ => Err(ParseError::unexpected(
+                vec![Token::Star, Token::Dot, Token::Id, Token::Hash],
+                lx,
+                span,
+            )),
         }
     }
 
-    fn parse_filter(&mut self) -> Result<Filter<'a>> {
+    fn parse_named_selector(&mut self) -> Result<NamedSelector<'a>> {
+        let (span, lx) = self.scanner.peek_non_whitespace();
+        match lx.token {
+            Token::Dot => {
+                self.scanner.eat_token();
+                self.try_eat(Token::Id)
+                    .map(|lx| NamedSelector::Class(lx.value))
+            }
+            Token::Hash => {
+                self.scanner.eat_token();
+                self.try_eat(Token::Id)
+                    .map(|lx| NamedSelector::Id(lx.value))
+            }
+            Token::Id => {
+                self.scanner.eat_token();
+                Ok(NamedSelector::Tag(lx.value))
+            }
+            _ => Err(ParseError::unexpected(
+                vec![Token::Dot, Token::Hash, Token::Id],
+                lx,
+                span,
+            )),
+        }
+    }
+
+    fn parse_filter_list(&mut self) -> Result<Vec<Filter<'a>>> {
+        let mut vec = Vec::new();
+
+        while let Token::Pipe = self.scanner.peek_non_whitespace().1.token {
+            self.scanner.eat_token();
+            let filter = self.parse_filter()?;
+            let qualifier = self.parse_qualifier()?;
+            vec.push(Filter { filter, qualifier })
+        }
+
+        Ok(vec)
+    }
+
+    fn parse_filter(&mut self) -> Result<FilterType<'a>> {
         let (span, lx) = self.scanner.peek_non_whitespace();
         self.scanner.eat_token();
 
@@ -326,7 +327,7 @@ impl<'a> Parser<'a> {
                 self.try_eat(Token::ParenOpen)?;
                 let args = self.parse_arg_list()?;
                 self.try_eat(Token::ParenClose)?;
-                Ok(Filter::Call(FilterCall::new(id, args)))
+                Ok(FilterType::Call(FilterCall { id, args }))
             }
             Token::BracketOpen => {
                 let name = self.try_eat(Token::Id)?.value;
@@ -334,13 +335,13 @@ impl<'a> Parser<'a> {
                 let leaf = self.parse_leaf()?;
                 let filters = self.parse_filter_list()?;
                 self.try_eat(Token::BracketClose)?;
-                Ok(Filter::Select(FilterSelect::new(
+                Ok(FilterType::Select(FilterSelect {
                     name,
-                    Inline {
+                    value: Inline {
                         value: leaf,
                         filters,
                     },
-                )))
+                }))
             }
             _ => Err(ParseError::unexpected(
                 vec![Token::Id, Token::BracketOpen],
@@ -350,32 +351,39 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_arg_list(&mut self) -> Result<Option<AstRef<'a, ArgList<'a>>>> {
-        let (span, lx) = self.scanner.peek_non_whitespace();
-        match lx.token {
-            Token::ParenClose => Ok(None),
-            Token::Id => {
-                let id = lx.value;
-                self.scanner.eat_token();
-                self.try_eat(Token::Colon)?;
-                let value = self.parse_value()?;
-                let next = match self.scanner.peek_non_whitespace().1.token {
-                    Token::Comma => {
-                        self.scanner.eat_token();
-                        self.parse_arg_list()?
-                    }
-                    _ => None,
-                };
+    fn parse_arg_list(&mut self) -> Result<Vec<Arg<'a>>> {
+        let mut vec = Vec::new();
+        loop {
+            let (span, lx) = self.scanner.peek_non_whitespace();
+            match lx.token {
+                Token::ParenClose => break,
+                Token::Id => {
+                    let id = lx.value;
+                    self.scanner.eat_token();
+                    self.try_eat(Token::Colon)?;
+                    let value = self.parse_value()?;
 
-                let r = self.arena.insert_variant(ArgList::new(id, value, next));
-                Ok(Some(r))
+                    vec.push(Arg { id, value });
+
+                    // eat trailing comma.  if there is no comma, there can be
+                    // no subsequent args.
+                    if let Token::Comma = self.scanner.peek_non_whitespace().1.token {
+                        self.scanner.eat_token();
+                    } else {
+                        break;
+                    }
+                }
+                _ => {
+                    return Err(ParseError::unexpected(
+                        vec![Token::ParenClose, Token::Id],
+                        lx,
+                        span,
+                    ))
+                }
             }
-            _ => Err(ParseError::unexpected(
-                vec![Token::ParenClose, Token::Id],
-                lx,
-                span,
-            )),
         }
+
+        Ok(vec)
     }
 
     fn parse_qualifier(&mut self) -> Result<Qualifier> {
@@ -453,23 +461,6 @@ mod tests {
     use super::{parse_string_literal, Parser};
     use crate::frontend::ast::*;
 
-    fn fmt_selector<'a>(head: &Selector<'a>, list: &[&SelectorList<'a>]) -> String {
-        use std::fmt::Write as _;
-        let mut out = String::new();
-        write!(&mut out, "{head}").expect("fmt error");
-        for node in list {
-            let _ = match &node.sel {
-                SelectorCombinator::And(s) => write!(&mut out, "{s}"),
-                SelectorCombinator::Child(s) => write!(&mut out, " > {s}"),
-                SelectorCombinator::Descendent(s) => write!(&mut out, " {s}"),
-                SelectorCombinator::NextSibling(s) => write!(&mut out, " + {s}"),
-                SelectorCombinator::SubsequentSibling(s) => write!(&mut out, " ~ {s}"),
-            };
-        }
-
-        out
-    }
-
     #[test]
     fn test_parse() {
         let string = r#"a: h1 {
@@ -480,25 +471,20 @@ mod tests {
                 };
             };"#;
         let parser = Parser::new(string);
-        let (arena, r) = parser.parse().expect("parsing failed");
+        let stmts = parser.parse().expect("parsing failed");
 
-        let stmts = arena.flatten(r);
-        let stmt = &stmts[0].value;
+        let stmt = &stmts[0];
 
         assert_eq!(stmt.id, "a");
         let RValue::Element(element) = &stmt.value else {
             panic!("expected element");
         };
 
-        assert_eq!(
-            fmt_selector(&element.selector_head, &arena.flatten(element.selectors)),
-            "h1"
-        );
+        assert_eq!(element.selector.to_string(), "h1");
 
         assert_eq!(element.qualifier, Qualifier::One);
-        let statements = arena.flatten(element.statements);
 
-        let stmt = &statements[0].value;
+        let stmt = &element.statements[0];
 
         assert!(
             matches!(
@@ -512,17 +498,17 @@ mod tests {
             "found {stmt:?}",
         );
 
-        let filters = arena.flatten(stmt.filters);
+        let filters = &stmt.filters;
         assert!(
             matches!(
                 &filters[..],
                 [
-                    FilterList {
-                        filter: Filter::Call(FilterCall { id: "cat", .. }),
+                    Filter {
+                        filter: FilterType::Call(FilterCall { id: "cat", .. }),
                         ..
                     },
-                    FilterList {
-                        filter: Filter::Call(FilterCall { id: "meow", .. }),
+                    Filter {
+                        filter: FilterType::Call(FilterCall { id: "meow", .. }),
                         ..
                     }
                 ]
@@ -530,18 +516,18 @@ mod tests {
             "found {filters:?}"
         );
 
-        let Filter::Call(filter) = &filters[0].filter else {
+        let FilterType::Call(filter) = &filters[0].filter else {
             unreachable!("Validated as Filter::Call above");
         };
-        let args = arena.flatten(filter.args);
+        let args = &filter.args;
         assert!(
             matches!(
                 &args[..],
-                [ArgList {
+                [Arg {
                     id: "i",
                     value: Inline {
                         value: Leaf::String(Cow::Borrowed("x")),
-                        filters: None,
+                        filters: _,
                     },
                     ..
                 }]
@@ -550,17 +536,14 @@ mod tests {
             &args[..]
         );
 
-        let stmt = &statements[1].value;
+        let stmt = &element.statements[1];
 
         let RValue::Element(element) = &stmt.value else {
             panic!("Expected element");
         };
 
-        assert!(element.statements.is_none());
-        assert_eq!(
-            fmt_selector(&element.selector_head, &arena.flatten(element.selectors)),
-            "h2#x > .cat"
-        );
+        assert!(element.statements.is_empty());
+        assert_eq!(element.selector.to_string(), "h2#x > .cat");
     }
 
     #[test]

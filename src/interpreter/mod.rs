@@ -6,45 +6,23 @@ use scrapelect_filter_types::{
     bail, other, Bindings, EValue, ElementContext, ListIter, PValue, Value,
 };
 
-use crate::frontend::{
-    ast::{
-        self, AstRef, Element, FilterList, Inline, Leaf, Qualifier, RValue, Statement,
-        StatementList,
-    },
-    AstArena,
-};
+use crate::frontend::ast::{self, Element, Inline, Leaf, Qualifier, RValue, Statement};
 
 mod execution_mode;
 pub mod filter;
 
 pub use scrapelect_filter_types::{Error, MessageExt, Result, WrapExt};
 
-impl<'ast> Element<'ast> {
-    #[must_use]
-    pub fn to_selector_str(&self, ast: &AstArena<'ast>) -> String {
-        use std::fmt::Write as _;
-
-        let mut buf = String::new();
-        let _ = write!(&mut buf, "{}", self.selector_head);
-
-        for selector in ast.flatten(self.selectors) {
-            let _ = write!(&mut buf, "{}", selector.sel);
-        }
-
-        buf
-    }
-}
-
 #[derive(Debug)]
 pub struct Interpreter<'ast> {
     client: reqwest::Client,
-    ast: &'ast AstArena<'ast>,
+    ast: &'ast [Statement<'ast>],
 }
 
 impl<'ast> Interpreter<'ast> {
     #[must_use]
     #[inline]
-    pub fn new(ast: &'ast AstArena<'ast>) -> Self {
+    pub fn new(ast: &'ast [Statement<'ast>]) -> Self {
         Self::with_client(
             ast,
             reqwest::Client::builder()
@@ -60,18 +38,14 @@ impl<'ast> Interpreter<'ast> {
 
     #[must_use]
     #[inline]
-    pub const fn with_client(ast: &'ast AstArena<'ast>, client: reqwest::Client) -> Self {
+    pub const fn with_client(ast: &'ast [Statement<'ast>], client: reqwest::Client) -> Self {
         Self { ast, client }
     }
 
     #[inline]
-    pub async fn interpret(
-        &self,
-        root_url: Url,
-        head: Option<AstRef<'ast, StatementList<'ast>>>,
-    ) -> Result<Bindings<'ast>> {
+    pub async fn interpret(&self, root_url: Url) -> Result<Bindings<'ast>> {
         let html = self.get_html(&root_url).await?;
-        self.interpret_block(html.root_element(), head, None, root_url)
+        self.interpret_block(html.root_element(), self.ast, None, root_url)
             .await
     }
 
@@ -98,14 +72,14 @@ impl<'ast> Interpreter<'ast> {
     async fn interpret_block(
         &self,
         element: scraper::ElementRef<'_>,
-        statements: Option<AstRef<'ast, StatementList<'ast>>>,
+        statements: &'ast [Statement<'ast>],
         parent: Option<&ElementContext<'ast, '_>>,
         url: Url,
     ) -> Result<Bindings<'ast>> {
         let mut ctx = ElementContext::new(element, parent, url);
 
-        for statement in self.ast.flatten(statements) {
-            self.interpret_statement(&statement.value, &mut ctx).await?;
+        for statement in statements {
+            self.interpret_statement(statement, &mut ctx).await?;
         }
 
         Ok(ctx.bindings.into_data())
@@ -113,7 +87,7 @@ impl<'ast> Interpreter<'ast> {
 
     async fn interpret_statement(
         &self,
-        statement: &Statement<'ast>,
+        statement: &'ast Statement<'ast>,
         ctx: &mut ElementContext<'ast, '_>,
     ) -> Result<()> {
         let inner = || async move {
@@ -122,8 +96,7 @@ impl<'ast> Interpreter<'ast> {
                 RValue::Element(e) => Value::from_data(self.interpret_element(e, ctx).await?),
             };
 
-            let value =
-                self.apply_filters(value, self.ast.flatten(statement.filters).into_iter(), ctx)?;
+            let value = self.apply_filters(value, statement.filters.iter(), ctx)?;
             ctx.set(Cow::Borrowed(statement.id), value)?;
 
             Ok(())
@@ -139,11 +112,10 @@ impl<'ast> Interpreter<'ast> {
 
     async fn interpret_element(
         &self,
-        element: &Element<'ast>,
+        element: &'ast Element<'ast>,
         ctx: &mut ElementContext<'ast, '_>,
     ) -> Result<Value> {
-        let selector_str = element.to_selector_str(self.ast);
-        let selector_str = &selector_str;
+        let selector_str = &element.selector.to_string();
         let inner = || async move {
             let html;
 
@@ -177,7 +149,7 @@ impl<'ast> Interpreter<'ast> {
 
             let values =
                 futures::future::try_join_all(element_refs.into_iter().map(|element_ref| {
-                    self.interpret_block(element_ref, element.statements, Some(ctx), url.clone())
+                    self.interpret_block(element_ref, &element.statements, Some(ctx), url.clone())
                 }))
                 .await?;
 
@@ -196,23 +168,22 @@ impl<'ast> Interpreter<'ast> {
     fn apply_filters<'ctx>(
         &self,
         value: EValue<'ctx>,
-        mut filters: impl Iterator<Item = &'ast FilterList<'ast>>,
+        mut filters: impl Iterator<Item = &'ast ast::Filter<'ast>>,
         ctx: &mut ElementContext<'ast, 'ctx>,
     ) -> Result<EValue<'ctx>> {
         filters
             .try_fold(value.into(), |value, filter| match &filter.filter {
-                ast::Filter::Call(call) => {
-                    let args = self
-                        .ast
-                        .flatten(call.args)
-                        .into_iter()
+                ast::FilterType::Call(call) => {
+                    let args = call
+                        .args
+                        .iter()
                         .map(|arg| Ok((arg.id, self.eval_inline(&arg.value, ctx)?)))
                         .collect::<Result<BTreeMap<_, _>>>()?;
                     qualify(filter.qualifier, value, |value| {
                         filter::dispatch_filter(call.id, value, args.clone(), ctx)
                     })
                 }
-                ast::Filter::Select(select) => qualify(filter.qualifier, value, |value| {
+                ast::FilterType::Select(select) => qualify(filter.qualifier, value, |value| {
                     let ls: ListIter = value.try_unwrap()?;
 
                     let mut inner_scope =
@@ -239,12 +210,12 @@ impl<'ast> Interpreter<'ast> {
 
     fn eval_inline<'ctx>(
         &self,
-        inline: &Inline<'ast>,
+        inline: &'ast Inline<'ast>,
         ctx: &mut ElementContext<'ast, 'ctx>,
     ) -> Result<EValue<'ctx>> {
         self.apply_filters(
             leaf_to_value(ctx, &inline.value)?,
-            self.ast.flatten(inline.filters).into_iter(),
+            inline.filters.iter(),
             ctx,
         )
     }
@@ -289,14 +260,15 @@ pub async fn interpret_string_harness(
 ) -> anyhow::Result<Bindings<'static>> {
     use anyhow::Context;
 
-    let (ast, head) = crate::frontend::Parser::new(program).parse()?;
+    let statements = crate::frontend::Parser::new(program).parse()?;
     let html = scraper::Html::parse_document(html);
-    let interpreter = Interpreter::new(Box::leak(Box::new(ast)));
+    let statements = Box::leak(Box::new(statements));
+    let interpreter = Interpreter::new(statements);
     interpreter
         // TODO: url hack
         .interpret_block(
             html.root_element(),
-            head,
+            statements,
             None,
             "file:///tmp/inmemory.html".parse().expect("URL parse"),
         )
@@ -312,7 +284,7 @@ mod tests {
         let input = std::fs::read_to_string(format!("examples/inputs/{filename}.html"))?;
         let script = std::fs::read_to_string(format!("examples/scrps/{filename}.scrp"))?;
 
-        let (ast, head) = crate::frontend::Parser::new(&script)
+        let ast = crate::frontend::Parser::new(&script)
             .parse()
             .expect("parse error");
 
@@ -321,7 +293,7 @@ mod tests {
         let result = super::Interpreter::new(&ast)
             .interpret_block(
                 html.root_element(),
-                head,
+                &ast,
                 None,
                 format!(
                     "file://{}/examples/inputs/{}",
