@@ -15,21 +15,27 @@ inline -> `<` leaf filter_list `>`
 maybe_url -> inline
           |  ""
 
-selector_list -> selector selector2
+selector -> selector_fragment selector_combinator_list
 
 # TODO: pseudo-class, attr
-selector -> `.` ID
-         |  `#` ID
-         |  ID
-         |  `*`
+named_selector -> `.` ID
+               |  `#` ID
+               |  ID
 
-selector2 -> selector_combinator selector selector2
-          | ""
+# must be nonempty
+named_selector_list -> named_selector named_selector_list2
+named_selector_list2 -> named_selector named_selector_list2
+                     |  ""
+
+selector_fragment -> named_selector_list
+                  |  `*`
+
+selector_combinator_list -> selector_combinator selector_fragment selector_combinator_list
+                         | ""
 
 selector_combinator -> `+`
                     |  `>`
                     |  `~`
-                    |  WHITESPACE
                     |  `,`  # can we wrap in parentheses?  i don't think so.
                     |  ""
 
