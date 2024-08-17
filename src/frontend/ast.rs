@@ -44,15 +44,15 @@ impl<T> NonEmpty<T> {
     #[inline]
     #[must_use]
     pub fn first(&self) -> &T {
-        assert!(self.0.len() > 0);
-        &self[0]
+        assert!(!self.0.is_empty());
+        &self.0[0]
     }
 
     #[inline]
     #[must_use]
     pub fn last(&self) -> &T {
-        assert!(self.0.len() > 0);
-        &self[self.0.len() - 1]
+        assert!(!self.0.is_empty());
+        &self.0[self.0.len() - 1]
     }
 
     #[inline]
