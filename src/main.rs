@@ -46,9 +46,9 @@ async fn main() -> anyhow::Result<()> {
                 .parse()
                 .with_context(|| format!("parse error in {}:", run_args.file.display()))?;
 
-            let interpreter = Interpreter::new(&ast);
+            let interpreter = Interpreter::new();
 
-            let results = interpreter.interpret(run_args.url).await?;
+            let results = interpreter.interpret(&ast, run_args.url).await?;
 
             println!("{}", serde_json::to_string_pretty(&results)?);
         }

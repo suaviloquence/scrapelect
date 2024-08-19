@@ -14,17 +14,15 @@ pub mod filter;
 pub use scrapelect_filter_types::{Error, MessageExt, Result, WrapExt};
 
 #[derive(Debug)]
-pub struct Interpreter<'ast> {
+pub struct Interpreter {
     client: reqwest::Client,
-    ast: &'ast [Statement<'ast>],
 }
 
-impl<'ast> Interpreter<'ast> {
+impl Interpreter {
     #[must_use]
     #[inline]
-    pub fn new(ast: &'ast [Statement<'ast>]) -> Self {
+    pub fn new() -> Self {
         Self::with_client(
-            ast,
             reqwest::Client::builder()
                 .user_agent(concat!(
                     env!("CARGO_PKG_NAME"),
@@ -38,14 +36,18 @@ impl<'ast> Interpreter<'ast> {
 
     #[must_use]
     #[inline]
-    pub const fn with_client(ast: &'ast [Statement<'ast>], client: reqwest::Client) -> Self {
-        Self { ast, client }
+    pub const fn with_client(client: reqwest::Client) -> Self {
+        Self { client }
     }
 
     #[inline]
-    pub async fn interpret(&self, root_url: Url) -> Result<Bindings<'ast>> {
+    pub async fn interpret<'ast>(
+        &self,
+        statements: &[Statement<'ast>],
+        root_url: Url,
+    ) -> Result<Bindings<'ast>> {
         let html = self.get_html(&root_url).await?;
-        self.interpret_block(html.root_element(), self.ast, None, root_url)
+        self.interpret_block(html.root_element(), statements, None, root_url)
             .await
     }
 
@@ -69,10 +71,10 @@ impl<'ast> Interpreter<'ast> {
         Ok(scraper::Html::parse_document(&text))
     }
 
-    async fn interpret_block(
+    async fn interpret_block<'ast>(
         &self,
         element: scraper::ElementRef<'_>,
-        statements: &'ast [Statement<'ast>],
+        statements: &[Statement<'ast>],
         parent: Option<&ElementContext<'ast, '_>>,
         url: Url,
     ) -> Result<Bindings<'ast>> {
@@ -85,9 +87,9 @@ impl<'ast> Interpreter<'ast> {
         Ok(ctx.bindings.into_data())
     }
 
-    async fn interpret_statement(
+    async fn interpret_statement<'ast>(
         &self,
-        statement: &'ast Statement<'ast>,
+        statement: &Statement<'ast>,
         ctx: &mut ElementContext<'ast, '_>,
     ) -> Result<()> {
         let inner = || async move {
@@ -110,9 +112,9 @@ impl<'ast> Interpreter<'ast> {
         })
     }
 
-    async fn interpret_element(
+    async fn interpret_element<'ast>(
         &self,
-        element: &'ast Element<'ast>,
+        element: &Element<'ast>,
         ctx: &mut ElementContext<'ast, '_>,
     ) -> Result<Value> {
         let selector_str = &element.selector.to_string();
@@ -165,10 +167,10 @@ impl<'ast> Interpreter<'ast> {
             .wrap_with(|| format!("note: occurred while evaluating element block `{selector_str}`"))
     }
 
-    fn apply_filters<'ctx>(
+    fn apply_filters<'a, 'ast: 'a, 'ctx>(
         &self,
         value: EValue<'ctx>,
-        mut filters: impl Iterator<Item = &'ast ast::Filter<'ast>>,
+        mut filters: impl Iterator<Item = &'a ast::Filter<'ast>>,
         ctx: &mut ElementContext<'ast, 'ctx>,
     ) -> Result<EValue<'ctx>> {
         filters
@@ -208,9 +210,9 @@ impl<'ast> Interpreter<'ast> {
             .map(EValue::from)
     }
 
-    fn eval_inline<'ctx>(
+    fn eval_inline<'ast, 'ctx>(
         &self,
-        inline: &'ast Inline<'ast>,
+        inline: &Inline<'ast>,
         ctx: &mut ElementContext<'ast, 'ctx>,
     ) -> Result<EValue<'ctx>> {
         self.apply_filters(
@@ -263,7 +265,7 @@ pub async fn interpret_string_harness(
     let statements = crate::frontend::Parser::new(program).parse()?;
     let html = scraper::Html::parse_document(html);
     let statements = Box::leak(Box::new(statements));
-    let interpreter = Interpreter::new(statements);
+    let interpreter = Interpreter::new();
     interpreter
         // TODO: url hack
         .interpret_block(
@@ -290,7 +292,7 @@ mod tests {
 
         let html = scraper::Html::parse_document(&input);
 
-        let result = super::Interpreter::new(&ast)
+        let result = super::Interpreter::new()
             .interpret_block(
                 html.root_element(),
                 &ast,

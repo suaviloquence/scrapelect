@@ -89,7 +89,7 @@ impl<'a> Parser<'a> {
         Ok(vec)
     }
 
-    fn parse_statement(&mut self) -> Result<Statement<'a>> {
+    pub(crate) fn parse_statement(&mut self) -> Result<Statement<'a>> {
         let id = self.try_eat(Token::Id)?.value;
         self.try_eat(Token::Colon)?;
         let value = self.parse_rvalue()?;

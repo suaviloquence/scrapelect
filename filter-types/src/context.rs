@@ -52,7 +52,20 @@ impl<'a, X> Bindings<'a, X> {
         )
     }
 
-    /// Conversts these [`Bindings`] into a [`Value`].  Specifically, it makes
+    /// Converts a [`Bindings<Data>`] into a [`Bindings<X>`].  This is a lossless operation
+    /// because a [`Value<Data>`] can always be converted into a [`Value<X>`].
+    #[must_use]
+    pub fn from_data(bindings: Bindings<'a, Data>) -> Self {
+        Self(
+            bindings
+                .0
+                .into_iter()
+                .map(|(k, v)| (k, Value::from_data(v)))
+                .collect(),
+        )
+    }
+
+    /// Converts these [`Bindings`] into a [`Value`].  Specifically, it makes
     /// them a key-value `Structure` by taking ownership of the keys and mapping
     /// them to the mapped values.
     #[must_use]
