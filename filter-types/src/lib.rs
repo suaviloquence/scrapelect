@@ -15,8 +15,9 @@
 //!
 //! # Context
 //!
-//! Provides the [`ElementContext`] struct for reading and manipulating state in
-//! the scope of an element context block.
+//! Provides the [`ElementContext`] and [`ElementContextView`] traits for reading and manipulating state in
+//! the scope of an element context block, as well as the [`Linked`] struct that implements
+//! this trait as a borrowed linked list
 //!
 //! # Filters
 //!
@@ -30,7 +31,7 @@ mod context;
 mod filter;
 mod value;
 
-pub use context::{Bindings, ElementContext};
+pub use context::{Bindings, ElementContext, ElementContextView, Linked};
 pub use error::{Error, MessageExt, Result, WrapExt};
 pub use filter::{filter_fn, Args, Filter, FilterDyn};
 pub use value::{

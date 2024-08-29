@@ -3,7 +3,8 @@ use std::{borrow::Cow, collections::BTreeMap, sync::Arc};
 use execution_mode::ExecutionMode;
 use reqwest::Url;
 use scrapelect_filter_types::{
-    bail, other, Bindings, EValue, ElementContext, ListIter, PValue, Value,
+    bail, other, Bindings, EValue, ElementContext, ElementContextView as _, Linked, ListIter,
+    PValue, Value,
 };
 
 use crate::frontend::ast::{self, Element, Inline, Leaf, Qualifier, RValue, Statement};
@@ -47,7 +48,8 @@ impl Interpreter {
         root_url: Url,
     ) -> Result<Bindings<'ast>> {
         let html = self.get_html(&root_url).await?;
-        self.interpret_block(html.root_element(), statements, None, root_url)
+
+        self.interpret_block(statements, Linked::new(html.root_element(), None, root_url))
             .await
     }
 
@@ -71,26 +73,22 @@ impl Interpreter {
         Ok(scraper::Html::parse_document(&text))
     }
 
-    async fn interpret_block<'ast>(
+    async fn interpret_block<'ast, 'ctx, E: ElementContext<'ast, 'ctx>>(
         &self,
-        element: scraper::ElementRef<'_>,
         statements: &[Statement<'ast>],
-        parent: Option<&ElementContext<'ast, '_>>,
-        url: Url,
+        mut ctx: E,
     ) -> Result<Bindings<'ast>> {
-        let mut ctx = ElementContext::new(element, parent, url);
-
         for statement in statements {
             self.interpret_statement(statement, &mut ctx).await?;
         }
 
-        Ok(ctx.bindings.into_data())
+        Ok(ctx.into_bindings())
     }
 
-    async fn interpret_statement<'ast>(
+    async fn interpret_statement<'ast, 'ctx, E: ElementContext<'ast, 'ctx>>(
         &self,
         statement: &Statement<'ast>,
-        ctx: &mut ElementContext<'ast, '_>,
+        ctx: &mut E,
     ) -> Result<()> {
         let inner = || async move {
             let value = match &statement.value {
@@ -112,10 +110,10 @@ impl Interpreter {
         })
     }
 
-    async fn interpret_element<'ast>(
+    async fn interpret_element<'ast, 'ctx, E: ElementContext<'ast, 'ctx>>(
         &self,
         element: &Element<'ast>,
-        ctx: &mut ElementContext<'ast, '_>,
+        ctx: &mut E,
     ) -> Result<Value> {
         let selector_str = &element.selector.to_string();
         let inner = || async move {
@@ -126,15 +124,15 @@ impl Interpreter {
                 let url: Url = match url.parse() {
                     Ok(url) => url,
                     Err(url::ParseError::RelativeUrlWithoutBase) => ctx
-                        .url
+                        .url()
                         .join(&url)
                         .with_msg(|| format!("`{url} is not a valid relative URL"))?,
                     Err(e) => bail!(@e, "`{url}` is not a valid URL"),
                 };
                 html = self.get_html(&url).await?;
-                (html.root_element(), url)
+                (html.root_element(), Some(url))
             } else {
-                (ctx.element, ctx.url.clone())
+                (ctx.element(), None)
             };
 
             let selector = scraper::Selector::parse(selector_str).map_err(|e| {
@@ -151,7 +149,7 @@ impl Interpreter {
 
             let values =
                 futures::future::try_join_all(element_refs.into_iter().map(|element_ref| {
-                    self.interpret_block(element_ref, &element.statements, Some(ctx), url.clone())
+                    self.interpret_block(&element.statements, ctx.nest(url.clone(), element_ref))
                 }))
                 .await?;
 
@@ -167,11 +165,11 @@ impl Interpreter {
             .wrap_with(|| format!("note: occurred while evaluating element block `{selector_str}`"))
     }
 
-    fn apply_filters<'a, 'ast: 'a, 'ctx>(
+    fn apply_filters<'a, 'ast: 'a, 'ctx, E: ElementContext<'ast, 'ctx>>(
         &self,
         value: EValue<'ctx>,
         mut filters: impl Iterator<Item = &'a ast::Filter<'ast>>,
-        ctx: &mut ElementContext<'ast, 'ctx>,
+        ctx: &mut E,
     ) -> Result<EValue<'ctx>> {
         filters
             .try_fold(value.into(), |value, filter| match &filter.filter {
@@ -188,8 +186,7 @@ impl Interpreter {
                 ast::FilterType::Select(select) => qualify(filter.qualifier, value, |value| {
                     let ls: ListIter = value.try_unwrap()?;
 
-                    let mut inner_scope =
-                        ElementContext::new(ctx.element, Some(ctx), ctx.url.clone());
+                    let mut inner_scope = ctx.nest(None, ctx.element());
 
                     Ok(Value::List(
                         ls.map(|value| {
@@ -210,10 +207,10 @@ impl Interpreter {
             .map(EValue::from)
     }
 
-    fn eval_inline<'ast, 'ctx>(
+    fn eval_inline<'ast, 'ctx, E: ElementContext<'ast, 'ctx>>(
         &self,
         inline: &Inline<'ast>,
-        ctx: &mut ElementContext<'ast, 'ctx>,
+        ctx: &mut E,
     ) -> Result<EValue<'ctx>> {
         self.apply_filters(
             leaf_to_value(ctx, &inline.value)?,
@@ -243,8 +240,8 @@ where
     }
 }
 
-pub fn leaf_to_value<'ast, 'ctx>(
-    ctx: &ElementContext<'ast, 'ctx>,
+pub fn leaf_to_value<'ast, 'ctx, E: ElementContext<'ast, 'ctx>>(
+    ctx: &E,
     value: &Leaf<'ast>,
 ) -> Result<EValue<'ctx>> {
     match value {
@@ -269,10 +266,12 @@ pub async fn interpret_string_harness(
     interpreter
         // TODO: url hack
         .interpret_block(
-            html.root_element(),
             statements,
-            None,
-            "file:///tmp/inmemory.html".parse().expect("URL parse"),
+            Linked::new(
+                html.root_element(),
+                None,
+                "file:///tmp/inmemory.html".parse().expect("URL parse"),
+            ),
         )
         .await
         .context("Error running interpreter")
@@ -280,6 +279,8 @@ pub async fn interpret_string_harness(
 
 #[cfg(test)]
 mod tests {
+    use scrapelect_filter_types::Linked;
+
     use super::Value::*;
 
     async fn integration_test(filename: &str) -> anyhow::Result<()> {
@@ -294,16 +295,18 @@ mod tests {
 
         let result = super::Interpreter::new()
             .interpret_block(
-                html.root_element(),
                 &ast,
-                None,
-                format!(
-                    "file://{}/examples/inputs/{}",
-                    std::env::current_dir().expect("get current dir").display(),
-                    filename,
-                )
-                .parse()
-                .expect("parse URL failed"),
+                Linked::new(
+                    html.root_element(),
+                    None,
+                    format!(
+                        "file://{}/examples/inputs/{}",
+                        std::env::current_dir().expect("get current dir").display(),
+                        filename,
+                    )
+                    .parse()
+                    .expect("parse URL failed"),
+                ),
             )
             .await?
             .0;

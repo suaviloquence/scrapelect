@@ -19,9 +19,9 @@ attribute macro.
 /// # Examples
 ///
 /// It's helpful to include a list of examples here, with their outputs/effects.
-pub fn filter_name<'doc>(
+pub fn filter_name<'ast, 'doc, E: ElementContextView<'ast, 'doc> + ?Sized>(
     value: RustValueT,
-    ctx: &mut ElementContext<'_, 'doc> // this can be omitted if you don't need it
+    ctx: &mut E, // this can be omitted if you don't need it
     arg: RustArgT,
     ...
 ) -> Result<PValue<'doc>> {
@@ -49,7 +49,7 @@ macro in the `interpreter::filter::builtin` module.
 
 [`Filter`](https://docs.rs/scrapelect/latest/scrapelect/interpreter/filter/trait.Filter.html)
 is the non-object-safe trait that has typed `Value` and `Args` types.  Its inherent
-function, `Filter::apply`, takes a `Self::Value`, `Self::Args` and `&mut ElementContext`
+function, `Filter::apply`, takes a `Self::Value`, `Self::Args` and `&mut impl ElementContextView<'_, '_>`
 and returns a `Result<PValue>`.  Often, deriving the `Args` trait is sufficient to
 specify arguments, but for finer-grained control, you can implement
 [`Args`](https://docs.rs/scrapelect/latest/scrapelect/interpreter/filter/trait.Args.html)

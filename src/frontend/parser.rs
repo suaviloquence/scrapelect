@@ -113,7 +113,7 @@ impl<'a> Parser<'a> {
         self.scanner.peek_non_whitespace();
         let (span, lx) = self.scanner.eat_token();
         match lx.token {
-            Token::String => Ok(Leaf::String(parse_string_literal(lx.value))),
+            Token::String => Ok(Leaf::String(Self::parse_string_literal(lx.value))),
             Token::Float => Ok(Leaf::Float(
                 lx.value.parse().expect("float literal invalid"),
             )),
@@ -131,7 +131,7 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
-    fn try_eat(&mut self, tk: Token) -> Result<Lexeme<'a>> {
+    pub(crate) fn try_eat(&mut self, tk: Token) -> Result<Lexeme<'a>> {
         let (span, lx) = self.scanner.peek_non_whitespace();
         self.scanner.eat_token();
 
@@ -200,7 +200,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_selector(&mut self) -> Result<Selector<'a>> {
+    pub(crate) fn parse_selector(&mut self) -> Result<Selector<'a>> {
         let head = self.parse_selector_fragment()?;
 
         let mut combinators = Vec::new();
@@ -400,57 +400,57 @@ impl<'a> Parser<'a> {
             _ => Qualifier::One,
         })
     }
-}
 
-fn parse_string_literal(s: &str) -> Cow<'_, str> {
-    debug_assert!(s.len() >= 2 && &s[0..1] == "\"" && &s[s.len() - 1..] == "\"");
-    let mut replace = vec![];
-    let s = &s[1..s.len() - 1];
+    pub(crate) fn parse_string_literal(s: &str) -> Cow<'_, str> {
+        debug_assert!(s.len() >= 2 && &s[0..1] == "\"" && &s[s.len() - 1..] == "\"");
+        let mut replace = vec![];
+        let s = &s[1..s.len() - 1];
 
-    let mut escape_next = false;
-    for (i, s) in s.char_indices() {
-        if escape_next {
-            escape_next = false;
-            let escaped = match s {
-                'n' => '\n',
-                '\\' => '\\',
-                '"' => '"',
-                other => {
-                    // TODO
-                    eprintln!("Unknown escape character {other:?}");
-                    other
-                }
-            };
+        let mut escape_next = false;
+        for (i, s) in s.char_indices() {
+            if escape_next {
+                escape_next = false;
+                let escaped = match s {
+                    'n' => '\n',
+                    '\\' => '\\',
+                    '"' => '"',
+                    other => {
+                        // TODO
+                        eprintln!("Unknown escape character {other:?}");
+                        other
+                    }
+                };
 
-            replace.push((i, Some(escaped)));
-        } else if s == '\\' {
-            escape_next = true;
-            replace.push((i, None));
+                replace.push((i, Some(escaped)));
+            } else if s == '\\' {
+                escape_next = true;
+                replace.push((i, None));
+            }
         }
-    }
 
-    if replace.is_empty() {
-        Cow::Borrowed(s)
-    } else {
-        let mut replace = replace.into_iter().peekable();
-        Cow::Owned(
-            s.char_indices()
-                .filter_map(|(i, x)| {
-                    replace
-                        .peek()
-                        .copied()
-                        .and_then(|(j, v)| {
-                            if i == j {
-                                let _ = replace.next();
-                                Some(v)
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap_or(Some(x))
-                })
-                .collect(),
-        )
+        if replace.is_empty() {
+            Cow::Borrowed(s)
+        } else {
+            let mut replace = replace.into_iter().peekable();
+            Cow::Owned(
+                s.char_indices()
+                    .filter_map(|(i, x)| {
+                        replace
+                            .peek()
+                            .copied()
+                            .and_then(|(j, v)| {
+                                if i == j {
+                                    let _ = replace.next();
+                                    Some(v)
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or(Some(x))
+                    })
+                    .collect(),
+            )
+        }
     }
 }
 
@@ -458,7 +458,7 @@ fn parse_string_literal(s: &str) -> Cow<'_, str> {
 mod tests {
     use std::borrow::Cow;
 
-    use super::{parse_string_literal, Parser};
+    use super::Parser;
     use crate::frontend::ast::*;
 
     #[test]
@@ -548,11 +548,11 @@ mod tests {
 
     #[test]
     fn test_escape_strings() {
-        assert_eq!(parse_string_literal(r#""""#), "");
-        assert_eq!(parse_string_literal(r#""abcdef""#), "abcdef");
-        assert_eq!(parse_string_literal(r#""hello! \n""#), "hello! \n");
+        assert_eq!(Parser::parse_string_literal(r#""""#), "");
+        assert_eq!(Parser::parse_string_literal(r#""abcdef""#), "abcdef");
+        assert_eq!(Parser::parse_string_literal(r#""hello! \n""#), "hello! \n");
         assert_eq!(
-            parse_string_literal(r#""my \" crazy \\ lifestyle \\\"""#),
+            Parser::parse_string_literal(r#""my \" crazy \\ lifestyle \\\"""#),
             r#"my " crazy \ lifestyle \""#
         );
     }

@@ -166,11 +166,11 @@ pub fn filter_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 type Args<'doc> = Args<'doc>;
                 type Value<'doc> = #vty;
 
-                fn apply<'ctx>(
+                fn apply<'ast, 'ctx, E: scrapelect_filter_types::ElementContextView<'ast, 'ctx> + ?Sized>(
                     #value: Self::Value<'ctx>,
                     args: Self::Args<'ctx>,
                     #[allow(unused)]
-                    ctx: &mut scrapelect_filter_types::ElementContext<'_, 'ctx>
+                    ctx: &mut E,
                 ) -> scrapelect_filter_types::Result<scrapelect_filter_types::PValue<'ctx>> {
                     // we can't elide the 'doc lifetime here because it needs to
                     // also be in the struct, unless we make a smarter macro

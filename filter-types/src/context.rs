@@ -8,16 +8,80 @@ use crate::{Data, EValue, Element, MessageExt, Result, Value};
 /// A reference to a parsed HTML element.
 pub use scraper::ElementRef;
 
+/// A view into an **element context block**, with setting and retrieving (scoped)
+/// bindings, and retrieving properties about this block like a URL and element.
+///
+/// This trait is **object safe**.  For interacting with entering/exiting different scopes,
+/// also implement the non-object-safe [`ElementContext`] trait.
+pub trait ElementContextView<'ast, 'ctx> {
+    /// Sets the binding with name `name` to `value` in this context.
+    ///
+    /// Overwrites a previous value bound to that name, if one is present.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err` if `name` cannot be rebound (e.g., it is `"element"`).
+    fn set(&mut self, name: Cow<'ast, str>, value: EValue<'ctx>) -> Result<()>;
+
+    /// Gets the binding with name `id`, if it is present. Handles
+    /// retrieving special bindings like `element`.  Looks in this
+    /// context and all parent contexts, starting innermost first.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err` if a binding with name `id` is not found in this
+    /// scope or any parent scopes.
+    fn get(&self, id: &str) -> Result<EValue<'ctx>>;
+
+    /// Returns a [reference](ElementRef) to the root element of this block.
+    #[must_use]
+    fn element(&self) -> ElementRef<'_>;
+
+    /// Returns a reference to the URL of the document that this element is in.
+    #[must_use]
+    fn url(&self) -> &Url;
+}
+
+/// An expansion of [`ElementContextView`] for interacting with entering and exiting
+/// different levels of the scope.  This trait is **not object safe**.
+pub trait ElementContext<'ast, 'ctx>: ElementContextView<'ast, 'ctx> {
+    /// A type representing an inner context from [`Self::nest`].  This is most often
+    /// `Self<'ast, 'newctx>` but we need this associated type to express HKTs like that.
+    type Nested<'inner>: ElementContext<'ast, 'inner>
+    where
+        // implies 'ast: 'inner and 'ctx: 'inner
+        Self: 'inner;
+
+    /// Creates a new top-level instance with the given URL and element reference.
+    #[must_use]
+    fn new(element: ElementRef<'ctx>, url: Url) -> Self;
+
+    /// Consumes the element context, returning key: value [`Bindings`]
+    ///
+    /// This is a **lossy** operation, dropping any statements that refer to the element
+    /// itself.
+    #[must_use]
+    fn into_bindings(self) -> Bindings<'ast>;
+
+    /// Enter a new, nested element context level with the given url (if different from the parent) and element reference.
+    #[must_use]
+    fn nest<'inner, 'outer: 'inner>(
+        &'outer self,
+        url: Option<Url>,
+        element: ElementRef<'inner>,
+    ) -> Self::Nested<'inner>;
+}
+
 /// Holds state for an **element context block**, including the
 /// parent block, if any.
 #[derive(Debug)]
-pub struct ElementContext<'ast, 'ctx> {
+pub struct Linked<'ast, 'ctx> {
     /// The current name-value bindings mapping at this level.
     pub bindings: Bindings<'ast, Element<'ctx>>,
     /// The [`ElementRef`] pointing to the parsed HTML element.
     pub element: ElementRef<'ctx>,
     /// A reference to the parent scope, if there is one.
-    pub parent: Option<&'ctx ElementContext<'ast, 'ctx>>,
+    pub parent: Option<&'ctx Self>,
     /// The URL of this context, set by URL recursion if indicated, or the parent's
     /// URL if not.
     pub url: Url,
@@ -86,17 +150,13 @@ impl<'a, X> Default for Bindings<'a, X> {
     }
 }
 
-impl<'ast, 'ctx> ElementContext<'ast, 'ctx> {
-    /// Creates a new [`ElementContext`] instance with the given `element`,
+impl<'ast, 'ctx> Linked<'ast, 'ctx> {
+    /// Creates a new [`Linked`] instance with the given `element`,
     /// `parent` reference (if it is `Some`), and `url`.
     ///
     /// Creates an empty [`Bindings`] map for this context.
     #[must_use]
-    pub fn new(
-        element: ElementRef<'ctx>,
-        parent: Option<&'ctx ElementContext<'ast, 'ctx>>,
-        url: Url,
-    ) -> Self {
+    pub fn new(element: ElementRef<'ctx>, parent: Option<&'ctx Self>, url: Url) -> Self {
         Self {
             bindings: Bindings::new(),
             element,
@@ -104,16 +164,10 @@ impl<'ast, 'ctx> ElementContext<'ast, 'ctx> {
             url,
         }
     }
+}
 
-    /// Gets the binding with name `id`, if it is present. Handles
-    /// retrieving special bindings like `element`.  Looks in this
-    /// context and all parent contexts, starting innermost first.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err` if a binding with name `id` is not found in this
-    /// scope or any parent scopes.
-    pub fn get(&self, id: &str) -> Result<EValue<'ctx>> {
+impl<'ast, 'ctx> ElementContextView<'ast, 'ctx> for Linked<'ast, 'ctx> {
+    fn get(&self, id: &str) -> Result<EValue<'ctx>> {
         match id {
             "element" => Ok(self.element.into()),
             _ => match self.bindings.0.get(id) {
@@ -126,14 +180,7 @@ impl<'ast, 'ctx> ElementContext<'ast, 'ctx> {
         }
     }
 
-    /// Sets the binding with name `name` to `value` in this context.
-    ///
-    /// Overwrites a previous value bound to that name, if one is present.
-    ///
-    /// # Errors
-    ///
-    /// Returns an `Err` if `name` cannot be rebound (e.g., it is `"element"`).
-    pub fn set(&mut self, name: Cow<'ast, str>, value: EValue<'ctx>) -> Result<()> {
+    fn set(&mut self, name: Cow<'ast, str>, value: EValue<'ctx>) -> Result<()> {
         match &*name {
             immutable @ "element" => {
                 bail!("assignment to immutable binding `{immutable}`")
@@ -142,5 +189,37 @@ impl<'ast, 'ctx> ElementContext<'ast, 'ctx> {
         };
 
         Ok(())
+    }
+
+    #[inline]
+    fn url(&self) -> &Url {
+        &self.url
+    }
+
+    #[inline]
+    fn element(&self) -> ElementRef<'_> {
+        self.element
+    }
+}
+
+impl<'ast, 'ctx> ElementContext<'ast, 'ctx> for Linked<'ast, 'ctx> {
+    type Nested<'inner> = Linked<'ast, 'inner> where Self: 'inner;
+
+    #[inline]
+    fn new(element: ElementRef<'ctx>, url: Url) -> Self {
+        Self::new(element, None, url)
+    }
+
+    #[inline]
+    fn into_bindings(self) -> Bindings<'ast> {
+        self.bindings.into_data()
+    }
+
+    fn nest<'inner, 'outer: 'inner>(
+        &'outer self,
+        url: Option<Url>,
+        element: ElementRef<'inner>,
+    ) -> Self::Nested<'inner> {
+        Linked::new(element, Some(self), url.unwrap_or_else(|| self.url.clone()))
     }
 }

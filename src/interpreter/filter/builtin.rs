@@ -23,7 +23,7 @@ use std::{
 };
 
 use scrapelect_filter_types::{
-    bail, filter_fn, EValue, ElementContext, FilterDyn, ListIter, MessageExt, Number, PValue,
+    bail, filter_fn, EValue, ElementContextView, FilterDyn, ListIter, MessageExt, Number, PValue,
     Pipeline, Result, Value,
 };
 
@@ -71,10 +71,10 @@ pub fn dbg<'doc>(value: PValue<'doc>, msg: Option<Arc<str>>) -> Result<PValue<'d
 ///   - `$spacey = "   hi   "`
 ///   - `$stripped = "hi"`
 #[filter_fn]
-pub fn tee<'doc>(
+pub fn tee<'ast, 'doc, E: ElementContextView<'ast, 'doc> + ?Sized>(
     value: PValue<'doc>,
     into: Arc<str>,
-    ctx: &mut ElementContext<'_, 'doc>,
+    ctx: &mut E,
 ) -> Result<PValue<'doc>> {
     let value: EValue = value.into();
     ctx.set(into.to_string().into(), value.clone())?;

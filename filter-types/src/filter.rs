@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use super::{
     value::{EValue, PValue, Pipeline, TryFromValue},
-    ElementContext, Result,
+    ElementContextView, Result,
 };
 
 pub use scrapelect_filter_proc_macro::{filter_fn, Args};
@@ -52,10 +52,10 @@ pub trait Filter {
     ///
     /// An implementor should return `Err` if the filter was called with invalid
     /// arguments, or if the filter cannot be called for some reason.
-    fn apply<'doc>(
+    fn apply<'ast, 'doc, E: ElementContextView<'ast, 'doc> + ?Sized>(
         value: Self::Value<'doc>,
         args: Self::Args<'doc>,
-        ctx: &mut ElementContext<'_, 'doc>,
+        ctx: &mut E,
     ) -> Result<PValue<'doc>>;
 }
 
@@ -81,7 +81,7 @@ pub trait FilterDyn {
         &self,
         value: PValue<'doc>,
         args: BTreeMap<&'ast str, EValue<'doc>>,
-        ctx: &mut ElementContext<'ast, 'doc>,
+        ctx: &mut dyn ElementContextView<'ast, 'doc>,
     ) -> Result<PValue<'doc>>;
 }
 
@@ -91,7 +91,7 @@ impl<F: Filter> FilterDyn for F {
         &self,
         value: PValue<'doc>,
         args: BTreeMap<&'ast str, EValue<'doc>>,
-        ctx: &mut ElementContext<'ast, 'doc>,
+        ctx: &mut dyn ElementContextView<'ast, 'doc>,
     ) -> Result<PValue<'doc>> {
         F::apply(value.try_unwrap()?, F::Args::try_deserialize(args)?, ctx)
     }
