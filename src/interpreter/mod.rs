@@ -3,16 +3,19 @@ use std::{borrow::Cow, collections::BTreeMap, sync::Arc};
 use execution_mode::ExecutionMode;
 use reqwest::Url;
 use scrapelect_filter_types::{
-    bail, other, Bindings, EValue, ElementContext, ElementContextView as _, Linked, ListIter,
-    PValue, Value,
+    bail, Bindings, EValue, ElementContext, ElementContextView as _, Linked, ListIter, PValue,
+    Value,
 };
 
 use crate::frontend::ast::{self, Element, Inline, Leaf, Qualifier, RValue, Statement};
 
 mod execution_mode;
 pub mod filter;
+mod repl;
 
 pub use scrapelect_filter_types::{Error, MessageExt, Result, WrapExt};
+
+pub use repl::Repl;
 
 #[derive(Debug)]
 pub struct Interpreter {
@@ -115,7 +118,6 @@ impl Interpreter {
         element: &Element<'ast>,
         ctx: &mut E,
     ) -> Result<Value> {
-        let selector_str = &element.selector.to_string();
         let inner = || async move {
             let html;
 
@@ -135,14 +137,7 @@ impl Interpreter {
                 (ctx.element(), None)
             };
 
-            let selector = scraper::Selector::parse(selector_str).map_err(|e| {
-                other!(
-                    "failed to parse selector `{selector_str}`.
-                This is a bug in `scrapelect`, please report it.
-                `selectors` error: {e}"
-                )
-            })?;
-
+            let selector = element.selector.to_scraper();
             let selection = root_element.select(&selector);
 
             let element_refs = ExecutionMode::hinted_from_iter(element.qualifier, selection)?;
@@ -160,9 +155,12 @@ impl Interpreter {
             .into_value())
         };
 
-        inner()
-            .await
-            .wrap_with(|| format!("note: occurred while evaluating element block `{selector_str}`"))
+        inner().await.wrap_with(|| {
+            format!(
+                "note: occurred while evaluating element block `{}`",
+                element.selector
+            )
+        })
     }
 
     fn apply_filters<'a, 'ast: 'a, 'ctx, E: ElementContext<'ast, 'ctx>>(

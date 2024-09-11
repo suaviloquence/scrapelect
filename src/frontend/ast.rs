@@ -221,4 +221,20 @@ mod selector_display {
             Ok(())
         }
     }
+
+    impl Selector<'_> {
+        pub fn to_scraper(&self) -> scraper::Selector {
+            let selector_str = self.to_string();
+            // the borrow checker does not like having this inline.
+            let result = scraper::Selector::parse(&selector_str);
+            match result {
+                Ok(s) => s,
+                Err(e) => unreachable!(
+                    "failed to parse selector `{selector_str}`.
+                    This is a bug in `scrapelect`, please report it.
+                    `selectors` error: {e}"
+                ),
+            }
+        }
+    }
 }

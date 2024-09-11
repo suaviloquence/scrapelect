@@ -237,7 +237,15 @@ pub enum Element<'a> {
 impl fmt::Display for Element<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Element(elem) => write!(f, "`{}`", elem.html()),
+            Self::Element(elem) => {
+                write!(f, "<{}", elem.value().name())?;
+
+                for (name, value) in elem.value().attrs() {
+                    write!(f, r#"{name}="{value}""#)?;
+                }
+
+                f.write_str(">")
+            }
         }
     }
 }

@@ -179,7 +179,7 @@ impl<'a> Parser<'a> {
         Ok(Inline { value, filters })
     }
 
-    fn parse_value(&mut self) -> Result<Inline<'a>> {
+    pub(crate) fn parse_value(&mut self) -> Result<Inline<'a>> {
         let (span, lx) = self.scanner.peek_non_whitespace();
         match lx.token {
             Token::Less => self.parse_inline(),
@@ -230,7 +230,9 @@ impl<'a> Parser<'a> {
         let (span, lx) = item;
 
         match lx.token {
-            Token::BraceOpen | Token::ParenOpen => Ok(None),
+            // Eof is only allowed in a repl context.
+            // TODO: investigate if this makes it possible to parse an invalid program anyway.
+            Token::BraceOpen | Token::ParenOpen | Token::Eof => Ok(None),
             // invariant: peek_next_whitespace is one of Id | Hash | Dot | Star
             // whitespace is eaten in the above block.
             Token::Whitespace => Ok(Some(SelectorCombinator::Descendent)),

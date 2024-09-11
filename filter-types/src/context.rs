@@ -18,24 +18,56 @@ pub trait ElementContextView<'ast, 'ctx> {
     ///
     /// Overwrites a previous value bound to that name, if one is present.
     ///
+    /// Implementors should not implement this, instead [`set_inner`](Self::set_inner).
+    ///
     /// # Errors
     ///
     /// Returns an `Err` if `name` cannot be rebound (e.g., it is `"element"`).
-    fn set(&mut self, name: Cow<'ast, str>, value: EValue<'ctx>) -> Result<()>;
+    fn set(&mut self, name: Cow<'ast, str>, value: EValue<'ctx>) -> Result<()> {
+        match &*name {
+            immutable @ "element" => {
+                bail!("assignment to immutable binding `{immutable}`")
+            }
+            _ => self.set_inner(name, value),
+        }
+    }
+
+    /// Sets the binding with name `name` to `value` in this context.
+    ///
+    /// Overwrites a previous value bound to that name, if one is present.
+    ///
+    /// Implementors should implement this and not `set`.
+    fn set_inner(&mut self, name: Cow<'ast, str>, value: EValue<'ctx>) -> Result<()>;
 
     /// Gets the binding with name `id`, if it is present. Handles
     /// retrieving special bindings like `element`.  Looks in this
     /// context and all parent contexts, starting innermost first.
     ///
+    /// Implementors should not implement this and instead use [`get_inner`](Self::get_inner).
+    ///
     /// # Errors
     ///
     /// Returns an `Err` if a binding with name `id` is not found in this
     /// scope or any parent scopes.
-    fn get(&self, id: &str) -> Result<EValue<'ctx>>;
+    fn get(&self, id: &str) -> Result<EValue<'ctx>> {
+        match id {
+            "element" => Ok(self.element().into()),
+            _ => self.get_inner(id),
+        }
+    }
+
+    /// For implementors of [`ElementContext`].  Only needs to get/set safe
+    /// (non-special) bindings, looking up in parent scopes as necessary.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `Err` if a binding with name `id` is not found in this
+    /// scope or any parent scopes.
+    fn get_inner(&self, id: &str) -> Result<EValue<'ctx>>;
 
     /// Returns a [reference](ElementRef) to the root element of this block.
     #[must_use]
-    fn element(&self) -> ElementRef<'_>;
+    fn element(&self) -> ElementRef<'ctx>;
 
     /// Returns a reference to the URL of the document that this element is in.
     #[must_use]
@@ -167,27 +199,19 @@ impl<'ast, 'ctx> Linked<'ast, 'ctx> {
 }
 
 impl<'ast, 'ctx> ElementContextView<'ast, 'ctx> for Linked<'ast, 'ctx> {
-    fn get(&self, id: &str) -> Result<EValue<'ctx>> {
-        match id {
-            "element" => Ok(self.element.into()),
-            _ => match self.bindings.0.get(id) {
-                Some(id) => Ok(id.clone()),
-                None => self
-                    .parent
-                    .with_msg(|| format!("unknown binding `{id}`"))?
-                    .get(id),
-            },
+    fn get_inner(&self, id: &str) -> Result<EValue<'ctx>> {
+        match self.bindings.0.get(id) {
+            Some(id) => Ok(id.clone()),
+            None => self
+                .parent
+                .with_msg(|| format!("unknown binding `{id}`"))?
+                .get(id),
         }
     }
 
-    fn set(&mut self, name: Cow<'ast, str>, value: EValue<'ctx>) -> Result<()> {
-        match &*name {
-            immutable @ "element" => {
-                bail!("assignment to immutable binding `{immutable}`")
-            }
-            _ => self.bindings.0.insert(name, value),
-        };
-
+    #[inline]
+    fn set_inner(&mut self, name: Cow<'ast, str>, value: EValue<'ctx>) -> Result<()> {
+        self.bindings.0.insert(name, value);
         Ok(())
     }
 
@@ -197,7 +221,7 @@ impl<'ast, 'ctx> ElementContextView<'ast, 'ctx> for Linked<'ast, 'ctx> {
     }
 
     #[inline]
-    fn element(&self) -> ElementRef<'_> {
+    fn element(&self) -> ElementRef<'ctx> {
         self.element
     }
 }
