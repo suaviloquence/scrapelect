@@ -6,6 +6,7 @@
 use std::{
     borrow::Cow,
     io::{self, BufRead, StdinLock, StdoutLock, Write},
+    iter::FusedIterator,
     sync::Arc,
 };
 
@@ -16,155 +17,50 @@ use scrapelect_filter_types::{
 use scraper::{ElementRef, Html};
 use url::Url;
 
-use crate::frontend::{ast, Parser, Token};
+use crate::frontend::{
+    ast::{self, Selector},
+    Parser, Token,
+};
 
 use super::Interpreter;
 
-#[derive(Debug)]
-pub enum ElementParent {
-    Document {
-        document: Html,
-        url: Url,
-    },
-    Element {
-        parent: Arc<ElementArc>,
-        selector: String,
-        name: Option<String>,
-    },
+pub enum Nested<T, I> {
+    One(Option<T>),
+    Nested(I),
 }
 
-#[ouroboros::self_referencing]
-#[derive(Debug)]
-pub struct ElementArc {
-    parent: Arc<ElementParent>,
-    #[covariant]
-    #[borrows(parent)]
-    element: ElementRef<'this>,
+impl<T, I: Iterator<Item = T>> Iterator for Nested<T, I> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::One(o) => o.take(),
+            Self::Nested(n) => n.next(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            Self::One(o) => o.iter().size_hint(),
+            Self::Nested(n) => n.size_hint(),
+        }
+    }
 }
 
-#[ouroboros::self_referencing]
-#[derive(Debug)]
-pub struct ContextNode {
-    pub element: Arc<ElementArc>,
-    #[covariant]
-    #[borrows(element)]
-    pub bindings: Bindings<'static, Element<'this>>,
-}
+impl<T, I: Iterator<Item = T> + FusedIterator> FusedIterator for Nested<T, I> {}
 
 #[derive(Debug)]
 struct Context<'a> {
+    bindings: Bindings<'static, Element<'a>>,
     element: ElementRef<'a>,
     url: Url,
-    view: Vec<&'a Bindings<'static, Element<'a>>>,
-    ledger: Bindings<'static, Element<'a>>,
-}
-
-impl<'a> Context<'a> {
-    #[must_use]
-    pub fn new(stack: &'a [ContextNode]) -> Option<Self> {
-        let url = stack
-            .iter()
-            .rev()
-            .find_map(|x| match &**x.borrow_element().borrow_parent() {
-                ElementParent::Document { url, .. } => Some(url),
-                _ => None,
-            })?
-            .clone();
-
-        let &element = stack.last()?.borrow_element().borrow_element();
-
-        let view = stack.iter().map(|x| x.borrow_bindings()).collect();
-
-        Some(Self {
-            element,
-            url,
-            view,
-            ledger: Bindings::new(),
-        })
-    }
-
-    #[inline]
-    fn new_as_error(stack: &'a [ContextNode]) -> anyhow::Result<Self> {
-        Self::new(stack).context(
-            "You do not have a document open.\n\
-        Call `/open <url: String>` to load a document from a URL.",
-        )
-    }
-}
-
-impl<'a, 'b> ElementContextView<'b, 'a> for Context<'a> {
-    #[inline]
-    fn element(&self) -> ElementRef<'a> {
-        self.element
-    }
-
-    #[inline]
-    fn set_inner(
-        &mut self,
-        name: Cow<'b, str>,
-        value: EValue<'a>,
-    ) -> scrapelect_filter_types::Result<()> {
-        self.ledger.0.insert(Cow::Owned(name.into_owned()), value);
-        Ok(())
-    }
-
-    fn get_inner(&self, id: &str) -> scrapelect_filter_types::Result<EValue<'a>> {
-        if let Some(item) = self.ledger.0.get(id) {
-            Ok(item.clone())
-        } else if let Some(item) = self.view.iter().rev().find_map(|x| x.0.get(id)) {
-            Ok(item.clone())
-        } else {
-            Err(other!("Binding `{id}` not found."))
-        }
-    }
-
-    #[inline]
-    fn url(&self) -> &Url {
-        &self.url
-    }
-}
-
-impl<'a, 'b> ElementContext<'b, 'a> for Context<'a> {
-    fn new(element: ElementRef<'a>, url: Url) -> Self {
-        Self {
-            element,
-            url,
-            ledger: Bindings::new(),
-            view: Vec::new(),
-        }
-    }
-
-    #[inline]
-    fn into_bindings(self) -> Bindings<'static> {
-        self.ledger.into_data()
-    }
-
-    type Nested<'inner> = Context<'inner> where Self: 'inner;
-
-    fn nest<'inner, 'outer: 'inner>(
-        &'outer self,
-        url: Option<Url>,
-        element: ElementRef<'inner>,
-    ) -> Self::Nested<'inner> {
-        Context {
-            element,
-            url: url.unwrap_or_else(|| self.url.clone()),
-            ledger: Bindings::new(),
-            view: self
-                .view
-                .iter()
-                .copied()
-                .chain(std::iter::once(&self.ledger))
-                .collect(),
-        }
-    }
+    selector: Option<String>,
 }
 
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct Repl<R = StdinLock<'static>, W = StdoutLock<'static>> {
     client: reqwest::Client,
-    stack: Vec<ContextNode>,
     input: R,
     output: W,
 }
@@ -183,7 +79,6 @@ impl Repl {
                 ))
                 .build()
                 .expect("Default client is invalid"),
-            stack: Vec::new(),
             input: io::stdin().lock(),
             output: io::stdout().lock(),
         }
@@ -194,16 +89,8 @@ impl Repl {
         let mut this = Self::new();
         let interpreter = Interpreter::with_client(this.client.clone());
         let document = interpreter.get_html(&url).await?;
-        this.stack.push(ContextNode::new(
-            Arc::new(ElementArc::new(
-                Arc::new(ElementParent::Document { document, url }),
-                |e| match &**e {
-                    ElementParent::Document { document, .. } => document.root_element(),
-                    _ => unreachable!("Expected Document variant"),
-                },
-            )),
-            |_| Bindings::new(),
-        ));
+
+        todo!();
 
         Ok(this)
     }
@@ -228,11 +115,12 @@ impl<R: BufRead, W: Write> Repl<R, W> {
     /// # Errors
     ///
     /// Returns an `Err` when an error occured while reading the line.
-    fn get_line(&mut self, buf: &mut String) -> anyhow::Result<bool> {
-        if let Some(top) = self.stack.last() {
-            match &**top.borrow_element().borrow_parent() {
-                ElementParent::Document { url, .. } => output!(self, "{url}")?,
-                ElementParent::Element { selector, .. } => output!(self, "{selector}")?,
+    fn get_line(&mut self, buf: &mut String, ctx: Option<&Context<'_>>) -> anyhow::Result<bool> {
+        if let Some(ctx) = ctx {
+            if let Some(selector) = &ctx.selector {
+                output!(self, "{selector}")?;
+            } else {
+                output!(self, "{}", ctx.url)?;
             }
         }
         output!(self, "> ")?;
