@@ -169,6 +169,13 @@ pub struct Repl<R = StdinLock<'static>, W = StdoutLock<'static>> {
     output: W,
 }
 
+impl Default for Repl {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Repl {
     /// Creates a new empty [`Repl`] instance using stdin and stdout.
     #[inline]
