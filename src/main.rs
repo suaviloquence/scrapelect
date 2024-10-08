@@ -3,7 +3,10 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::Parser as _;
-use scrapelect::{frontend::Parser, interpreter::Interpreter};
+use scrapelect::{
+    frontend::Parser,
+    interpreter::{Interpreter, Repl},
+};
 use url::Url;
 
 #[derive(Debug, clap::Parser)]
@@ -25,10 +28,16 @@ struct RunArgs {
     url: Url,
 }
 
+#[derive(Debug, clap::Args)]
+struct ReplArgs {
+    /// An optional URL to open at the beginning of the REPL.
+    url: Option<Url>,
+}
+
 #[derive(Debug, clap::Subcommand)]
 enum Mode {
     Run(RunArgs),
-    Repl,
+    Repl(ReplArgs),
 }
 
 #[tokio::main]
@@ -52,15 +61,19 @@ async fn main() -> anyhow::Result<()> {
 
             println!("{}", serde_json::to_string_pretty(&results)?);
         }
+        (Some(Mode::Repl(ReplArgs { url: Some(url) })), None) => {
+            Repl::open(url).await?.repl().await?;
+        }
         // TODO: investigate if the (None, None) branch is reachable (I think it isn't)
-        (Some(Mode::Repl), None) | (None, None) => {
-            todo!()
+        (Some(Mode::Repl(ReplArgs { url: None })), None) | (None, None) => {
+            Repl::new().repl().await?;
         }
         (Some(_), Some(_)) => {
             unreachable!(
                 "This should be impossible to reach with clap's `args_conflicts_with_subcommands`.
                 If you see this error message, please file a GitHub issue with the arguments
-                you provided to `scrapelect`."
+                you provided to `scrapelect`:\n{:?}",
+                std::env::args().collect::<Vec<_>>(),
             )
         }
     }
